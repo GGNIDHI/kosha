@@ -29,9 +29,15 @@ export function computeHealthScore(
 ): HealthScoreBreakdown {
   const today = new Date();
   const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const currentMonthTxs = transactions.filter(t => t.date.startsWith(currentMonthStr));
-  const monthlyIncome = currentMonthTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
+
+  // Smart month: use current month if it has data, else fall back to most recent month with transactions
+  const allMonths = [...new Set(transactions.map(t => t.date.slice(0, 7)))].sort().reverse();
+  const activeMonthStr = allMonths.includes(currentMonthStr) ? currentMonthStr : (allMonths[0] ?? currentMonthStr);
+
+  const currentMonthTxs = transactions.filter(t => t.date.startsWith(activeMonthStr));
+  const monthlyIncome   = currentMonthTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
   const monthlyExpenses = currentMonthTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
+
 
   // 1. Savings Rate (25 pts)
   const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0;
