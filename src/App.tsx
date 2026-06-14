@@ -10,6 +10,7 @@ import { DebtView } from './components/DebtView';
 import { InsightsView } from './components/InsightsView';
 import { TaxView } from './components/TaxView';
 import { CsvImportView } from './components/CsvImportView';
+import { CategoriesView } from './components/CategoriesView';
 import { SettingsView } from './components/SettingsView';
 import './App.css';
 
@@ -28,6 +29,7 @@ function App() {
       case 'tax':         return <TaxView />;
       case 'uploads':     return <PdfParserView />;
       case 'csv':         return <CsvImportView />;
+      case 'categories':  return <CategoriesView />;
       case 'settings':    return <SettingsView />;
       default:            return <DashboardView onNavigate={setCurrentView} />;
     }

@@ -14,6 +14,7 @@ export interface Transaction {
   category: string;
   source: 'manual' | 'bank_statement' | 'csv';
   pdfName?: string;
+  pdfSourceId?: string; // links to ParsedPdf.id
   notes?: string;
 }
 
@@ -30,6 +31,7 @@ export interface SalarySlip {
   grossPay: number;
   netPay: number;
   pdfName?: string;
+  pdfSourceId?: string;
 }
 
 export interface Investment {
@@ -81,6 +83,38 @@ export interface NetWorthSnapshot {
   portfolioValue: number;
 }
 
+/** Metadata record for each parsed PDF document */
+export interface ParsedPdf {
+  id?: string;
+  filename: string;
+  parsedAt: string; // ISO timestamp
+  transactionCount: number;
+  llmUsed: 'gemini' | 'groq';
+  type: 'bank' | 'salary';
+}
+
+/** A spending/income category (default or user-created) */
+export interface Category {
+  id?: number;
+  label: string;       // display name e.g. "Food"
+  emoji: string;       // emoji icon e.g. "🍔"
+  isDefault: boolean;  // true = built-in, cannot delete
+  color?: string;      // optional accent hex
+}
+
+/** Seed data for default categories */
+export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
+  { label: 'Food',          emoji: '🍔', isDefault: true, color: '#f59e0b' },
+  { label: 'Shopping',      emoji: '🛍️', isDefault: true, color: '#8b5cf6' },
+  { label: 'Utilities',     emoji: '💡', isDefault: true, color: '#06b6d4' },
+  { label: 'Travel',        emoji: '✈️', isDefault: true, color: '#10b981' },
+  { label: 'Salary',        emoji: '💰', isDefault: true, color: '#22c55e' },
+  { label: 'Investment',    emoji: '📈', isDefault: true, color: '#3b82f6' },
+  { label: 'Health',        emoji: '🏥', isDefault: true, color: '#ec4899' },
+  { label: 'Entertainment', emoji: '🎬', isDefault: true, color: '#f97316' },
+  { label: 'Others',        emoji: '📦', isDefault: true, color: '#6b7280' },
+];
+
 class KoshaDB extends Dexie {
   settings!: Table<Setting, string>;
   transactions!: Table<Transaction, string>;
@@ -90,6 +124,8 @@ class KoshaDB extends Dexie {
   goals!: Table<Goal, string>;
   debts!: Table<Debt, string>;
   netWorthSnapshots!: Table<NetWorthSnapshot, string>;
+  parsedPdfs!: Table<ParsedPdf, string>;
+  categories!: Table<Category, number>;
 
   constructor() {
     super('KoshaFinanceDB');
@@ -107,10 +143,31 @@ class KoshaDB extends Dexie {
       debts: 'id, type, nextDueDate',
       netWorthSnapshots: 'id, date',
     });
+    this.version(4).stores({
+      parsedPdfs: '++id, parsedAt, type',
+      categories: '++id, &label, isDefault',
+      // Re-index transactions with pdfSourceId
+      transactions: 'id, date, category, type, source, pdfSourceId',
+      salarySlips: 'id, [year+month], year, month, pdfSourceId',
+    }).upgrade(async tx => {
+      // Seed default categories if the table is empty
+      const count = await tx.table('categories').count();
+      if (count === 0) {
+        await tx.table('categories').bulkAdd(DEFAULT_CATEGORIES);
+      }
+    });
   }
 }
 
 export const db = new KoshaDB();
+
+// Seed default categories on first run (outside upgrade for new installs)
+db.on('ready', async () => {
+  const count = await db.categories.count();
+  if (count === 0) {
+    await db.categories.bulkAdd(DEFAULT_CATEGORIES as Category[]);
+  }
+});
 
 export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
   const record = await db.settings.get(key);

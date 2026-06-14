@@ -11,6 +11,7 @@ import {
   Sparkles,
   Calculator,
   FileSpreadsheet,
+  Tag,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -34,6 +35,7 @@ const MENU_SECTIONS = [
       { id: 'budgets',     name: 'Budgets',        icon: Target },
       { id: 'goals',       name: 'Savings Goals',  icon: Trophy },
       { id: 'debts',       name: 'Debts & EMIs',   icon: CreditCard },
+      { id: 'categories',  name: 'Categories',     icon: Tag },
     ],
   },
   {
