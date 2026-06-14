@@ -161,11 +161,29 @@ class KoshaDB extends Dexie {
 
 export const db = new KoshaDB();
 
-// Seed default categories on first run (outside upgrade for new installs)
+// Seed default categories on first run and import environment defaults if present
 db.on('ready', async () => {
   const count = await db.categories.count();
   if (count === 0) {
     await db.categories.bulkAdd(DEFAULT_CATEGORIES as Category[]);
+  }
+
+  const hasBeenInitialized = await getSetting('hasBeenInitialized', false);
+  if (!hasBeenInitialized) {
+    const env = (import.meta as any).env || {};
+    const initName = env.VITE_INIT_NAME || '';
+    const initCurrency = env.VITE_INIT_CURRENCY || '';
+    const initGeminiKey = env.VITE_INIT_GEMINI_KEY || '';
+    const initGroqKey = env.VITE_INIT_GROQ_KEY || '';
+
+    if (initName) await setSetting('userName', initName);
+    if (initCurrency) await setSetting('currency', initCurrency);
+    if (initGeminiKey) await setSetting('geminiApiKey', initGeminiKey);
+    if (initGroqKey) await setSetting('groqApiKey', initGroqKey);
+
+    if (initName || initCurrency || initGeminiKey || initGroqKey) {
+      await setSetting('hasBeenInitialized', true);
+    }
   }
 });
 
