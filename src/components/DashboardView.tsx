@@ -1,30 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting } from '../db/database';
+import { db, getSetting, recordNetWorthSnapshot } from '../db/database';
 import { formatAmount } from '../utils/currency';
 import { detectRecurring } from '../utils/recurringDetector';
-import { 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  BarChart, 
-  Bar, 
+import { computeHealthScore } from '../utils/healthScore';
+import { buildCashForecast } from '../utils/cashForecast';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  BarChart,
+  Bar,
   Cell,
-  Legend
+  Legend,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from 'recharts';
-import { 
-  PiggyBank, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Wallet, 
-  CircleDollarSign, 
+import {
+  PiggyBank,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Wallet,
+  CircleDollarSign,
   ArrowRight,
   Sparkles,
   Target,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -38,16 +44,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     getSetting('currency', 'INR').then(setCurrency);
   }, []);
 
-  // Fetch transactions, investments, salary slips, and budgets
+  // Fetch transactions, investments, salary slips, budgets, and net worth history
   const data = useLiveQuery(async () => {
     const transactions = await db.transactions.toArray();
     const investments = await db.investments.toArray();
     const salarySlips = await db.salarySlips.toArray();
     const budgets = await db.budgets.toArray();
-    return { transactions, investments, salarySlips, budgets };
-  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [] };
+    const netWorthHistory = await db.netWorthSnapshots.orderBy('date').toArray();
+    return { transactions, investments, salarySlips, budgets, netWorthHistory };
+  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], netWorthHistory: [] };
 
-  const { transactions, investments, salarySlips, budgets } = data;
+  const { transactions, investments, salarySlips, budgets, netWorthHistory } = data;
 
   // 1. Calculate Aggregates
   const cashBalance = transactions.reduce((sum, tx) => {
@@ -167,6 +174,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     .filter(r => r.frequency === 'monthly')
     .reduce((s, r) => s + r.averageAmount, 0);
 
+  // Financial Health Score
+  const healthScore = computeHealthScore(transactions, budgets, salarySlips, totalMonthlyRecurring, cashBalance);
+
+  // 30-day Cash Flow Forecast
+  const forecastData = buildCashForecast(cashBalance, salarySlips, recurringTxs);
+  const forecastMin = Math.min(...forecastData.map(d => d.projected));
+
+  // Net Worth History chart data (last 12 snapshots)
+  const netWorthChartData = netWorthHistory.slice(-12).map(s => ({
+    label: s.id, // YYYY-MM
+    netWorth: s.netWorth,
+    cash: s.cashBalance,
+    portfolio: s.portfolioValue,
+  }));
+
+  // Record today's snapshot (upserts monthly)
+  useEffect(() => {
+    if (transactions.length > 0) {
+      recordNetWorthSnapshot(netWorth, cashBalance, portfolioValue);
+    }
+  }, [netWorth, cashBalance, portfolioValue, transactions.length]);
+
   const monthNamesFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   return (
@@ -252,6 +281,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* Financial Health Score */}
+      <div className="glass-card health-score-card">
+        <div className="hsc-left">
+          <div className="hsc-gauge-wrap">
+            <svg viewBox="0 0 120 70" className="hsc-gauge-svg">
+              <path d="M10,70 A60,60 0 0,1 110,70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" strokeLinecap="round"/>
+              <path
+                d="M10,70 A60,60 0 0,1 110,70"
+                fill="none"
+                stroke={healthScore.colour}
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={`${(healthScore.total / 100) * 157} 157`}
+                style={{ filter: `drop-shadow(0 0 6px ${healthScore.colour})` }}
+              />
+              <text x="60" y="68" textAnchor="middle" fontSize="22" fontWeight="800" fill={healthScore.colour}>{healthScore.total}</text>
+            </svg>
+          </div>
+          <div className="hsc-grade" style={{ color: healthScore.colour }}>{healthScore.grade}</div>
+          <p className="hsc-title">Financial Health Score</p>
+        </div>
+        <div className="hsc-components">
+          {([
+            { compLabel: 'Savings Rate',      ...healthScore.savingsRate },
+            { compLabel: 'Budget Adherence', ...healthScore.budgetAdherence },
+            { compLabel: 'Emergency Fund',   ...healthScore.emergencyFund },
+            { compLabel: 'Investment Rate',  ...healthScore.investmentRate },
+            { compLabel: 'Subscriptions',    ...healthScore.subscriptionBurden },
+          ] as { compLabel: string; score: number; max: number; value: number; label: string }[]).map(c => (
+            <div key={c.compLabel} className="hsc-component-row">
+              <div className="hsc-comp-meta">
+                <span className="hsc-comp-label">{c.compLabel}</span>
+                <span className="hsc-comp-score">{c.score}/{c.max}</span>
+              </div>
+              <div className="hsc-comp-bar">
+                <div className="hsc-comp-fill" style={{ width: `${(c.score / c.max) * 100}%`, background: healthScore.colour }} />
+              </div>
+              <span className="hsc-comp-value">{c.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="hsc-tip">
+          <TrendingUp size={14} className="primary-color" />
+          <span>{healthScore.savingsRate.label} • {healthScore.emergencyFund.label}</span>
+        </div>
+      </div>
+
       {/* Charts Grid */}
       <div className="charts-dashboard-grid">
         {/* Income vs Expenses Cashflow Area Chart */}
@@ -326,6 +402,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
       </div>
+
+      {/* 30-day Cash Flow Forecast */}
+      <div className="glass-card dashboard-chart-card">
+        <div className="card-header">
+          <h3>30-Day Cash Flow Forecast</h3>
+          <span className="chart-subtitle">Projected balance based on salary &amp; recurring debits</span>
+        </div>
+        <div className="chart-wrapper-body">
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={forecastData} margin={{ top: 5, right: 5, left: 10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="forecastGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="label" stroke="#6b7280" fontSize={10} tickLine={false} axisLine={false} interval={4} />
+              <YAxis stroke="#6b7280" fontSize={10} tickLine={false} axisLine={false}
+                tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
+              <Tooltip
+                contentStyle={{ background: '#0c111d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#fff' }}
+                formatter={(val: any) => [formatAmount(Number(val), currency), 'Projected Balance']}
+                labelFormatter={(label) => `Date: ${label}`}
+              />
+              {forecastMin < 0 && <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="3 3" />}
+              <Area type="monotone" dataKey="projected" stroke="#06b6d4" strokeWidth={2}
+                fill="url(#forecastGrad)" dot={false} activeDot={{ r: 4 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Net Worth History */}
+      {netWorthChartData.length > 1 && (
+        <div className="glass-card dashboard-chart-card">
+          <div className="card-header">
+            <h3>Net Worth History</h3>
+            <span className="chart-subtitle">Monthly snapshot — cash + portfolio</span>
+          </div>
+          <div className="chart-wrapper-body">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={netWorthChartData} margin={{ top: 5, right: 5, left: 10, bottom: 0 }}>
+                <XAxis dataKey="label" stroke="#6b7280" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#6b7280" fontSize={10} tickLine={false} axisLine={false}
+                  tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: '#0c111d', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#fff' }}
+                  formatter={(val: any, name: any) => [formatAmount(Number(val), currency), name === 'netWorth' ? 'Net Worth' : name === 'cash' ? 'Cash' : 'Portfolio']}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px', color: '#9ca3af' }} />
+                <Line type="monotone" dataKey="netWorth" name="netWorth" stroke="#8b5cf6" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="cash" name="cash" stroke="#22c55e" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="portfolio" name="portfolio" stroke="#f97316" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* Lists Row: Budget Health, Recurring, Recent Tx, Salary History */}
       <div className="dashboard-lists-row">
@@ -808,6 +942,58 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           border-radius: 4px;
           background: rgba(99,102,241,0.12);
           color: var(--primary);
+        }
+
+        /* Chart subtitle */
+        .chart-subtitle {
+          font-size: 0.75rem;
+          color: var(--text-muted);
+          font-weight: 400;
+          margin-left: 8px;
+        }
+
+        /* Health Score Card */
+        .health-score-card {
+          display: flex;
+          align-items: center;
+          gap: 32px;
+          padding: 24px 32px;
+          flex-wrap: wrap;
+        }
+
+        .hsc-left {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          min-width: 140px;
+        }
+
+        .hsc-gauge-svg { width: 130px; overflow: visible; }
+        .hsc-grade { font-size: 2rem; font-weight: 900; line-height: 1; }
+        .hsc-title { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; text-align: center; }
+
+        .hsc-components {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          flex: 1;
+          min-width: 240px;
+        }
+
+        .hsc-component-row { display: flex; flex-direction: column; gap: 3px; }
+        .hsc-comp-meta { display: flex; justify-content: space-between; }
+        .hsc-comp-label { font-size: 0.78rem; color: var(--text-secondary); font-weight: 500; }
+        .hsc-comp-score { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
+        .hsc-comp-bar { height: 5px; background: rgba(255,255,255,.05); border-radius: 99px; overflow: hidden; }
+        .hsc-comp-fill { height: 100%; border-radius: 99px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+        .hsc-comp-value { display: none; }
+
+        .hsc-tip {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 0.78rem; color: var(--text-muted);
+          padding-top: 12px; border-top: 1px solid var(--border-glass);
+          width: 100%;
         }
       `}</style>
     </div>
