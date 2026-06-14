@@ -49,7 +49,14 @@ jobs:
       - name: Sync version from tag
         run: |
           TAG=${GITHUB_REF#refs/tags/v}
-          npm version $TAG --no-git-tag-version --allow-same-version
+          # Pad to semver: v1.0 -> 1.0.0, v1 -> 1.0.0
+          IFS='.' read -ra PARTS <<< "$TAG"
+          MAJOR="${PARTS[0]:-0}"
+          MINOR="${PARTS[1]:-0}"
+          PATCH="${PARTS[2]:-0}"
+          SEMVER="$MAJOR.$MINOR.$PATCH"
+          echo "Using version: $SEMVER"
+          npm version $SEMVER --no-git-tag-version --allow-same-version
 
       - name: Build App
         run: npm run build
