@@ -61,13 +61,15 @@ Open **http://localhost:5173**
 > Open the site in Chrome → click the **install icon** (⊕) in the address bar → done.  
 > On iPhone: Safari → Share → **Add to Home Screen**
 
-### 🖥️ 1-Click Desktop Launchers (With Auto-Start Server)
-If you run Kosha locally, you can use the pre-built desktop launchers included in the root folder so you don't have to use the terminal to start the server:
+### 🖥️ 1-Click Desktop Launchers (With Auto-Start Server & Setup Wizard)
+If you run Kosha locally, you can use the pre-built desktop launchers in the root folder. **These launchers feature a built-in onboarding setup wizard** so you don't even need to use the terminal to run `npm install` or configure options:
 
 #### 🍏 For macOS (Mac)
 Use **`Kosha Launcher.app`**:
 1. Copy/drag **`Kosha Launcher.app`** to your **Applications** folder or onto your **Dock**.
-2. Double-click to open. It starts the Vite server silently in the background and opens the dashboard.
+2. Double-click to open. 
+   * **First Run**: It will prompt you to automatically install dependencies and let you input your Name, Currency, API Keys, and Port via a series of popup dialogs.
+   * **Next Runs**: It starts the Vite server silently in the background and opens the dashboard immediately.
 3. *Note: Since the bundle is downloaded from GitHub, macOS Gatekeeper may block it initially. To run it, right-click -> Open, or run this quick command in your terminal once to clear quarantine flags:*
    ```bash
    xattr -cr "Kosha Launcher.app"
@@ -76,8 +78,9 @@ Use **`Kosha Launcher.app`**:
 #### 🔌 For Windows (PC)
 Use **`Kosha Launcher.bat`**:
 1. Double-click **`Kosha Launcher.bat`** in the project folder.
-2. It will open a brief terminal command prompt, start the Vite server in the background, launch the dashboard in your default browser, and close itself immediately.
-3. You can right-click **`Kosha Launcher.bat`** -> **Create Shortcut** and drag that shortcut to your Desktop or pin it to your Start menu for quick access.
+   * **First Run**: A popup dialog will ask to automatically run the setup. It will run `npm install` and guide you through configuration steps (Name, Currency, API Keys, Port) via popup input boxes.
+   * **Next Runs**: It launches the server in the background and opens the dashboard.
+2. You can right-click **`Kosha Launcher.bat`** -> **Create Shortcut** and drag that shortcut to your Desktop or pin it to your Start menu for quick access.
 
 ---
 
