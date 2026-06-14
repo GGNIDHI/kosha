@@ -17,44 +17,71 @@ export function isGeminiFallbackError(error: any): boolean {
   );
 }
 
+// Max characters per chunk sent to Gemini. Keeps well within token limits.
+const CHUNK_SIZE = 6000;
+
 /**
- * Calls the Gemini API to parse bank/credit-card statement text into transactions.
- * Every transaction is guaranteed to be returned — unknowns land in "Others" with vendor name preserved.
+ * Splits statement text into page-sized chunks to avoid Gemini output token limits.
+ * Each "--- Page N ---" block becomes its own chunk. If pages are too large,
+ * they are further split by CHUNK_SIZE characters.
  */
-export async function parseBankStatementWithGemini(
-  text: string,
+function splitIntoChunks(text: string): string[] {
+  // Split on page separators inserted by pdfParser.ts
+  const pages = text.split(/---\s*Page\s*\d+\s*---/).map(p => p.trim()).filter(Boolean);
+
+  const chunks: string[] = [];
+  for (const page of pages) {
+    if (page.length <= CHUNK_SIZE) {
+      chunks.push(page);
+    } else {
+      // Break oversized pages into smaller character-level chunks
+      for (let i = 0; i < page.length; i += CHUNK_SIZE) {
+        chunks.push(page.slice(i, i + CHUNK_SIZE));
+      }
+    }
+  }
+  // If no page separators were found, treat entire text as one chunk
+  return chunks.length > 0 ? chunks : [text];
+}
+
+/**
+ * Calls Gemini once for a single chunk of statement text.
+ */
+async function parseChunkWithGemini(
+  chunk: string,
+  chunkIndex: number,
+  totalChunks: number,
   apiKey: string
-): Promise<Transaction[]> {
+): Promise<any[]> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `
-You are an expert financial data extraction system. Your job is to extract EVERY SINGLE transaction from the provided bank or credit card statement text. Do NOT skip any transaction — missing even one is a critical failure.
+You are an expert financial data extraction system. Extract EVERY SINGLE transaction from this portion of a bank/credit card statement (chunk ${chunkIndex + 1} of ${totalChunks}). Do NOT skip any — missing even one is a critical failure.
 
 RULES:
-1. Extract ALL transactions without exception, including fees, interest charges, EMI payments, cashback credits, refunds, balance transfers, annual charges — everything.
+1. Extract ALL transactions: fees, interest charges, EMI payments, cashback credits, refunds, balance transfers, annual charges — everything.
 2. For each transaction:
-   - date: format as YYYY-MM-DD. If the year is missing, infer it from context (statement period). Use best guess.
-   - description: Use the raw vendor/merchant name from the statement (e.g. "ZOMATO*ORDER9812", "AMAZON MARKETPLACE", "SWIGGY INSTAMART"). Keep it human-readable but preserve the merchant name. Do not truncate.
+   - date: format as YYYY-MM-DD. If year is missing, infer from context. Use best guess.
+   - description: Use the raw vendor/merchant name. Keep it human-readable but preserve merchant name. Do not truncate.
    - amount: Extract as a positive number.
-   - type: "debit" if money was spent/withdrawn/charged. "credit" if money was received/refunded/cashback.
-   - category: Assign the BEST matching category from this list. NEVER leave it empty:
+   - type: "debit" if money spent/withdrawn/charged. "credit" if money received/refunded/cashback.
+   - category: Assign the BEST matching category. NEVER leave empty:
        * "Food"          — restaurants, food delivery, groceries, Swiggy, Zomato, BigBasket, Blinkit, cafes
        * "Shopping"      — retail, e-commerce, Amazon, Flipkart, Myntra, clothing, electronics
-       * "Utilities"     — electricity, water, gas, internet, mobile recharge, DTH, broadband, BESCOM, BSNL, Jio, Airtel
+       * "Utilities"     — electricity, water, gas, internet, mobile recharge, DTH, broadband, BESCOM, Jio, Airtel
        * "Travel"        — flights, trains, taxis, Uber, Ola, Rapido, Metro, Redbus, hotel, fuel, petrol
        * "Salary"        — salary credits, employer payments
        * "Investment"    — mutual funds, stocks, SIP, Zerodha, Groww, insurance premium, ELSS, FD
        * "Health"        — pharmacy, hospital, doctor, clinic, Practo, Apollo, medical
        * "Entertainment" — Netflix, Hotstar, Spotify, gaming, movies, concerts, OTT platforms, Amazon Prime
-       * "Others"        — anything that does not fit above (bank charges, ATM fees, interest, transfers, unknown merchants)
-   - notes: Put any reference numbers, UTR, or additional context here.
+       * "Others"        — bank charges, ATM fees, interest, transfers, unknown merchants
+   - notes: Reference numbers, UTR, or additional context.
+3. If category unclear, use "Others". NEVER omit a transaction because category is unclear.
+4. Opening/closing balance lines and minimum payment lines are NOT transactions — skip those.
+5. Return ONLY valid JSON. No markdown. No explanation.
 
-3. If you cannot determine the category, use "Others". NEVER omit a transaction just because the category is unclear.
-4. For credit card statements: opening balance, closing balance, minimum payment lines are NOT transactions — skip those. But all actual charges and credits are transactions.
-5. Return ONLY valid JSON matching the schema. No explanations, no markdown fences.
-
-Bank/Credit Card Statement Text:
-${text}
+Statement Text (chunk ${chunkIndex + 1} of ${totalChunks}):
+${chunk}
 `;
 
   const schema = {
@@ -62,7 +89,7 @@ ${text}
     properties: {
       transactions: {
         type: 'ARRAY',
-        description: 'ALL transactions from the statement — must not be empty if there are any charges/credits',
+        description: 'ALL transactions found in this text chunk',
         items: {
           type: 'OBJECT',
           properties: {
@@ -103,13 +130,45 @@ ${text}
 
   const data = await response.json();
   const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!resultText) {
-    throw new Error('Empty response received from Gemini.');
-  }
+  if (!resultText) return [];
 
   const parsedData = JSON.parse(resultText);
-  return (parsedData.transactions || []).map((tx: any) => ({
+  return parsedData.transactions || [];
+}
+
+/**
+ * Deduplicates transactions that appear identical across chunks
+ * (same date + description + amount + type).
+ */
+function deduplicateTransactions(txs: any[]): any[] {
+  const seen = new Set<string>();
+  return txs.filter(tx => {
+    const key = `${tx.date}|${tx.description}|${tx.amount}|${tx.type}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Calls the Gemini API to parse bank/credit-card statement text into transactions.
+ * Splits large statements into chunks to avoid output token limits causing silent truncation.
+ */
+export async function parseBankStatementWithGemini(
+  text: string,
+  apiKey: string
+): Promise<Transaction[]> {
+  const chunks = splitIntoChunks(text);
+  const allRawTxs: any[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkTxs = await parseChunkWithGemini(chunks[i], i, chunks.length, apiKey);
+    allRawTxs.push(...chunkTxs);
+  }
+
+  const deduplicated = deduplicateTransactions(allRawTxs);
+
+  return deduplicated.map((tx: any) => ({
     ...tx,
     id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     source: 'bank_statement' as const,

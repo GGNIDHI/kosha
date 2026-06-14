@@ -139,7 +139,7 @@ export const PdfParserView: React.FC = () => {
       setLoadingStep('Extracting text from PDF...');
       const extractedText = await extractTextFromPdf(file, activePassword);
 
-      setLoadingStep(`Analyzing with ${selectedProvider === 'groq' ? 'Groq · Llama 3.3' : 'Gemini 2.5 Flash'}...`);
+      setLoadingStep(`Analyzing with ${selectedProvider === 'groq' ? 'Groq · Llama 3.3' : 'Gemini 2.5 Flash'} (processing page by page for full accuracy)...`);
 
       const runWithGemini = async () => {
         if (activeTab === 'bank') {
