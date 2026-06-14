@@ -61,14 +61,23 @@ Open **http://localhost:5173**
 > Open the site in Chrome → click the **install icon** (⊕) in the address bar → done.  
 > On iPhone: Safari → Share → **Add to Home Screen**
 
-### 🖥️ macOS Native Launcher (With Auto-Start Server)
-If you are running locally on macOS, you can use the pre-compiled **Kosha Launcher** app included in the root of this repository:
-1. Drag **`Kosha Launcher.app`** into your **Applications** folder or onto your **Dock**.
-2. Double-click to open. It will automatically start the Vite server in the background (if it isn't already running) and open the dashboard in your default browser!
-3. *Note: Since the app bundle is cloned/downloaded from GitHub, macOS Gatekeeper may block it initially. To run it, right-click -> Open, or run this quick command in terminal to clear the quarantine flags:*
+### 🖥️ 1-Click Desktop Launchers (With Auto-Start Server)
+If you run Kosha locally, you can use the pre-built desktop launchers included in the root folder so you don't have to use the terminal to start the server:
+
+#### 🍏 For macOS (Mac)
+Use **`Kosha Launcher.app`**:
+1. Copy/drag **`Kosha Launcher.app`** to your **Applications** folder or onto your **Dock**.
+2. Double-click to open. It starts the Vite server silently in the background and opens the dashboard.
+3. *Note: Since the bundle is downloaded from GitHub, macOS Gatekeeper may block it initially. To run it, right-click -> Open, or run this quick command in your terminal once to clear quarantine flags:*
    ```bash
    xattr -cr "Kosha Launcher.app"
    ```
+
+#### 🔌 For Windows (PC)
+Use **`Kosha Launcher.bat`**:
+1. Double-click **`Kosha Launcher.bat`** in the project folder.
+2. It will open a brief terminal command prompt, start the Vite server in the background, launch the dashboard in your default browser, and close itself immediately.
+3. You can right-click **`Kosha Launcher.bat`** -> **Create Shortcut** and drag that shortcut to your Desktop or pin it to your Start menu for quick access.
 
 ---
 
