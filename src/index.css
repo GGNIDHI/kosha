@@ -1,0 +1,275 @@
+/* Kosha Finance - Modern Glassmorphic Design System */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  /* Typography */
+  --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Color Palette - HSL Tailored Dark Theme */
+  --bg-app: hsl(224, 71%, 4%);
+  --bg-sidebar: hsl(224, 71%, 2%);
+  --bg-card: hsla(224, 60%, 8%, 0.65);
+  --bg-card-hover: hsla(224, 60%, 12%, 0.8);
+  --border-glass: rgba(255, 255, 255, 0.06);
+  --border-glass-focus: rgba(255, 255, 255, 0.15);
+  
+  --primary: hsl(263, 90%, 65%);
+  --primary-glow: hsla(263, 90%, 65%, 0.15);
+  --secondary: hsl(190, 95%, 50%);
+  --secondary-glow: hsla(190, 95%, 50%, 0.15);
+  
+  --success: hsl(142, 70%, 50%);
+  --success-glow: hsla(142, 70%, 50%, 0.12);
+  --danger: hsl(350, 89%, 60%);
+  --danger-glow: hsla(350, 89%, 60%, 0.12);
+  --warning: hsl(45, 93%, 58%);
+  
+  --text-primary: hsl(210, 40%, 98%);
+  --text-secondary: hsl(215, 20%, 75%);
+  --text-muted: hsl(215, 16%, 50%);
+  
+  /* Layout */
+  --sidebar-width: 260px;
+  --header-height: 70px;
+  --border-radius-lg: 16px;
+  --border-radius-md: 10px;
+  --border-radius-sm: 6px;
+
+  /* Shadows & Blur */
+  --shadow-premium: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  --blur-glass: blur(16px);
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Reset and Base Styles */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout Wrapper */
+.app-container {
+  display: flex;
+  min-height: 100dvh;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(263, 80%, 40%, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(190, 90%, 40%, 0.06) 0px, transparent 50%);
+}
+
+/* Scrollbar Customization */
+* {
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: var(--border-radius-sm);
+  transition: var(--transition-smooth);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+/* Premium Glassmorphic Card Utility */
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur-glass);
+  -webkit-backdrop-filter: var(--blur-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-premium);
+  transition: var(--transition-smooth);
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card-hover);
+}
+
+/* Dynamic Interactive Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: var(--border-radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px 0 hsla(263, 90%, 65%, 0.3);
+}
+
+.btn-primary:hover {
+  background: hsl(263, 90%, 70%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px 0 hsla(263, 90%, 65%, 0.4);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border-glass-focus);
+  color: var(--text-primary);
+  backdrop-filter: var(--blur-glass);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-success {
+  background: var(--success);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px 0 hsla(142, 70%, 50%, 0.3);
+}
+
+.btn-success:hover {
+  background: hsl(142, 70%, 55%);
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px 0 hsla(350, 89%, 60%, 0.3);
+}
+
+.btn-danger:hover {
+  background: hsl(350, 89%, 65%);
+  transform: translateY(-1px);
+}
+
+/* Forms & Inputs */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.form-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.form-input, .form-select, .form-textarea {
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--border-radius-md);
+  color: var(--text-primary);
+  outline: none;
+  transition: var(--transition-smooth);
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* Custom Checkbox/Switch */
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.switch-input {
+  appearance: none;
+  width: 40px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.switch-input:checked {
+  background: var(--primary);
+}
+
+.switch-input::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  top: 2px;
+  left: 2px;
+  transition: var(--transition-smooth);
+}
+
+.switch-input:checked::before {
+  left: 22px;
+}
+
+/* Micro-animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 10px 0 var(--primary-glow); }
+  50% { box-shadow: 0 0 20px 5px var(--primary-glow); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.glow-active {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
