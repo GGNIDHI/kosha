@@ -31,6 +31,7 @@ import {
   Target,
   RefreshCw,
   TrendingUp,
+  CalendarDays,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -57,7 +58,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
   const { transactions, investments, salarySlips, budgets, debts, netWorthHistory } = data;
 
-  // 1. Calculate Aggregates
+  // 1. Calculate Aggregates (all-time)
   const cashBalance = transactions.reduce((sum, tx) => {
     if (tx.type === 'credit') return sum + tx.amount;
     return sum - tx.amount;
@@ -69,12 +70,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
   const netWorth = cashBalance + portfolioValue;
 
-  // Monthly stats (for current month)
+  // ── Smart Month Selection ────────────────────────────────────────────────
+  // Use current month if it has data. Otherwise fall back to the most recent
+  // month that actually has transactions (so old statements are still shown).
   const today = new Date();
   const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  
-  const currentMonthTxs = transactions.filter(tx => tx.date.startsWith(currentMonthStr));
-  
+
+  // Find all months that appear in transactions, sorted descending
+  const allMonths = [...new Set(transactions.map(tx => tx.date.slice(0, 7)))]
+    .sort()
+    .reverse();
+
+  // Pick current month if it has data, else most recent month with data
+  const activeMonthStr = allMonths.includes(currentMonthStr)
+    ? currentMonthStr
+    : (allMonths[0] ?? currentMonthStr);
+
+  const isCurrentMonth = activeMonthStr === currentMonthStr;
+
+  // Label for UI: "Jun 2026" or "Mar 2026 (most recent)"
+  const [activeYear, activeMonthNum] = activeMonthStr.split('-').map(Number);
+  const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const activeMonthLabel = `${monthNamesShort[activeMonthNum - 1]} ${activeYear}`;
+  const activeMonthBadge = isCurrentMonth ? activeMonthLabel : `${activeMonthLabel} · most recent`;
+
+  const currentMonthTxs = transactions.filter(tx => tx.date.startsWith(activeMonthStr));
+
   const monthlyIncome = currentMonthTxs
     .filter(tx => tx.type === 'credit')
     .reduce((sum, tx) => sum + tx.amount, 0);
@@ -248,7 +269,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       </header>
 
       {/* ── Financial Meters Row ─────────────────────────────────────── */}
-      <div className="meters-row">
+      <div className="meters-section">
+        <div className="meters-header">
+          <span className="meters-title">Monthly Overview</span>
+          <div className={`month-badge ${!isCurrentMonth ? 'month-badge-past' : ''}`}>
+            <CalendarDays size={12} />
+            <span>{activeMonthBadge}</span>
+            {!isCurrentMonth && <span className="month-badge-note">· no data yet for {monthNamesShort[(today.getMonth())]} {today.getFullYear()}</span>}
+          </div>
+        </div>
+        <div className="meters-row">
 
         {/* Expense Rate */}
         <MeterGauge
@@ -305,6 +335,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           helpText={debts.length === 0 ? 'No active debts. Great!' : dtiRate <= 30 ? 'Healthy DTI ratio.' : dtiRate <= 50 ? 'Moderate. Avoid new loans.' : 'High DTI. Prioritise debt payoff.'}
         />
 
+        </div>
       </div>
 
       {/* Main Net Worth Banner */}
@@ -1120,7 +1151,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           width: 100%;
         }
 
-        /* ── Meters Row ─────────────────────────────────────────────── */
+        /* ── Meters Section ──────────────────────────────────────────── */
+        .meters-section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .meters-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 2px;
+        }
+
+        .meters-title {
+          font-size: 0.78rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text-muted);
+        }
+
+        .month-badge {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--text-secondary);
+          padding: 4px 10px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid var(--border-glass);
+        }
+
+        .month-badge-past {
+          background: rgba(251,191,36,0.08);
+          border-color: rgba(251,191,36,0.25);
+          color: #fbbf24;
+        }
+
+        .month-badge-note {
+          color: var(--text-muted);
+          font-weight: 400;
+          font-size: 0.7rem;
+        }
+
         .meters-row {
           display: grid;
           grid-template-columns: repeat(5, 1fr);
