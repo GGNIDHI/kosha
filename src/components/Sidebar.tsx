@@ -59,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     <aside className="sidebar-container">
       <div className="sidebar-brand">
         <div className="brand-logo">
-          <img src="/logo.png" alt="Kosha" className="brand-logo-img" />
+          <img src="./logo.png" alt="Kosha" className="brand-logo-img" />
         </div>
         <div className="brand-info">
           <h2>Kosha</h2>

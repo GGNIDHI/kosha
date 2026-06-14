@@ -42,6 +42,7 @@
   "build": {
     "appId": "com.kosha.finance",
     "productName": "Kosha",
+    "icon": "public/logo.png",
     "files": [
       "dist/**/*",
       "electron/**/*"
