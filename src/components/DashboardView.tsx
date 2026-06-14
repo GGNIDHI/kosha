@@ -44,17 +44,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     getSetting('currency', 'INR').then(setCurrency);
   }, []);
 
-  // Fetch transactions, investments, salary slips, budgets, and net worth history
+  // Fetch transactions, investments, salary slips, budgets, debts, and net worth history
   const data = useLiveQuery(async () => {
     const transactions = await db.transactions.toArray();
     const investments = await db.investments.toArray();
     const salarySlips = await db.salarySlips.toArray();
     const budgets = await db.budgets.toArray();
+    const debts = await db.debts.toArray();
     const netWorthHistory = await db.netWorthSnapshots.orderBy('date').toArray();
-    return { transactions, investments, salarySlips, budgets, netWorthHistory };
-  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], netWorthHistory: [] };
+    return { transactions, investments, salarySlips, budgets, debts, netWorthHistory };
+  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], debts: [], netWorthHistory: [] };
 
-  const { transactions, investments, salarySlips, budgets, netWorthHistory } = data;
+  const { transactions, investments, salarySlips, budgets, debts, netWorthHistory } = data;
 
   // 1. Calculate Aggregates
   const cashBalance = transactions.reduce((sum, tx) => {
@@ -198,6 +199,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
   const monthNamesFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+  // ── Dashboard Meter Computations ────────────────────────────────────────
+  // 1. Expense Rate: this month's expenses as % of income
+  const expenseRate = monthlyIncome > 0 ? Math.min(100, (monthlyExpenses / monthlyIncome) * 100) : 0;
+
+  // 2. Savings Rate: already computed above (savingsRate)
+  const savingsRateClamped = Math.min(100, Math.max(0, savingsRate));
+
+  // 3. Investment Rate: Investment-category debits + PF this month vs income
+  const latestSlip = [...salarySlips].sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)[0];
+  const monthlyPF = latestSlip?.providentFund ?? 0;
+  const monthlyInvestmentDebits = currentMonthTxs
+    .filter(tx => tx.type === 'debit' && tx.category === 'Investment')
+    .reduce((s, tx) => s + tx.amount, 0);
+  const investmentRate = monthlyIncome > 0
+    ? Math.min(100, ((monthlyInvestmentDebits + monthlyPF) / monthlyIncome) * 100)
+    : 0;
+
+  // 4. Budget Compliance: % of budgeted categories within limit this month
+  const budgetCompliancePct = budgets.length > 0
+    ? Math.round(
+        (budgets.filter(b => {
+          const spent = currentMonthTxs
+            .filter(tx => tx.type === 'debit' && tx.category === b.category)
+            .reduce((s, tx) => s + tx.amount, 0);
+          return spent <= b.monthlyLimit;
+        }).length / budgets.length) * 100
+      )
+    : 100;
+
+  // 5. Debt-to-Income Ratio: total monthly EMIs vs monthly income
+  const totalMonthlyEmi = debts.reduce((s, d) => s + d.emiAmount, 0);
+  const dtiRate = monthlyIncome > 0 ? Math.min(100, (totalMonthlyEmi / monthlyIncome) * 100) : 0;
+
   return (
     <div className="view-container animate-fade-in">
       <header className="view-header-row">
@@ -212,6 +246,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
       </header>
+
+      {/* ── Financial Meters Row ─────────────────────────────────────── */}
+      <div className="meters-row">
+
+        {/* Expense Rate */}
+        <MeterGauge
+          label="Expense Rate"
+          subtitle="of income spent"
+          value={expenseRate}
+          displayValue={`${Math.round(expenseRate)}%`}
+          thresholds={{ ok: 60, warn: 80 }}
+          lowIsGood
+          helpText={expenseRate > 80 ? 'High! Reduce discretionary spending.' : expenseRate > 60 ? 'Moderate. Watch your spending.' : 'Healthy spending level.'}
+        />
+
+        {/* Savings Rate */}
+        <MeterGauge
+          label="Savings Rate"
+          subtitle="of income saved"
+          value={savingsRateClamped}
+          displayValue={`${Math.round(savingsRateClamped)}%`}
+          thresholds={{ ok: 20, warn: 10 }}
+          lowIsGood={false}
+          helpText={savingsRateClamped >= 20 ? 'Excellent! Keep it up.' : savingsRateClamped >= 10 ? 'Good. Try to push past 20%.' : 'Low. Try to save at least 10% of income.'}
+        />
+
+        {/* Investment Rate */}
+        <MeterGauge
+          label="Investment Rate"
+          subtitle="of income invested"
+          value={investmentRate}
+          displayValue={`${Math.round(investmentRate)}%`}
+          thresholds={{ ok: 15, warn: 5 }}
+          lowIsGood={false}
+          helpText={investmentRate >= 15 ? 'Strong! Wealth is growing.' : investmentRate >= 5 ? 'Decent. Push towards 15%.' : 'Low. Start a SIP or invest more.'}
+        />
+
+        {/* Budget Compliance */}
+        <MeterGauge
+          label="Budget Compliance"
+          subtitle="categories in limit"
+          value={budgetCompliancePct}
+          displayValue={`${budgetCompliancePct}%`}
+          thresholds={{ ok: 80, warn: 50 }}
+          lowIsGood={false}
+          helpText={budgets.length === 0 ? 'Set budgets to track compliance.' : budgetCompliancePct === 100 ? 'Perfect! All budgets on track.' : budgetCompliancePct >= 80 ? 'Good. A few categories over.' : 'Several budgets exceeded.'}
+        />
+
+        {/* Debt-to-Income */}
+        <MeterGauge
+          label="Debt-to-Income"
+          subtitle="of income on EMIs"
+          value={dtiRate}
+          displayValue={`${Math.round(dtiRate)}%`}
+          thresholds={{ ok: 30, warn: 50 }}
+          lowIsGood
+          helpText={debts.length === 0 ? 'No active debts. Great!' : dtiRate <= 30 ? 'Healthy DTI ratio.' : dtiRate <= 50 ? 'Moderate. Avoid new loans.' : 'High DTI. Prioritise debt payoff.'}
+        />
+
+      </div>
 
       {/* Main Net Worth Banner */}
       <div className="glass-card net-worth-banner">
@@ -995,7 +1089,120 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           padding-top: 12px; border-top: 1px solid var(--border-glass);
           width: 100%;
         }
+
+        /* ── Meters Row ─────────────────────────────────────────────── */
+        .meters-row {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 12px;
+        }
+        @media (max-width: 900px) {
+          .meters-row { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 600px) {
+          .meters-row { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .meter-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          padding: 18px 12px 14px;
+          text-align: center;
+          position: relative;
+          border: 1px solid var(--border-glass);
+          border-radius: var(--border-radius-lg);
+          transition: border-color .25s, transform .2s;
+        }
+        .meter-card:hover { transform: translateY(-2px); }
+
+        .meter-svg { overflow: visible; }
+
+        .meter-label {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: var(--text-primary);
+          line-height: 1.2;
+        }
+        .meter-subtitle {
+          font-size: 0.7rem;
+          color: var(--text-muted);
+          margin-top: -4px;
+        }
+        .meter-helptext {
+          font-size: 0.7rem;
+          color: var(--text-muted);
+          line-height: 1.4;
+          max-width: 130px;
+        }
       `}</style>
+    </div>
+  );
+};
+
+// ── Reusable semi-circular gauge component ────────────────────────────────────
+interface MeterGaugeProps {
+  label: string;
+  subtitle: string;
+  value: number;        // 0-100
+  displayValue: string;
+  thresholds: { ok: number; warn: number };
+  lowIsGood: boolean;   // true = low value is green, high is red (e.g. expense rate)
+  helpText: string;
+}
+
+const MeterGauge: React.FC<MeterGaugeProps> = ({
+  label, subtitle, value, displayValue, thresholds, lowIsGood, helpText
+}) => {
+  // Pick colour based on thresholds and direction
+  const getColour = () => {
+    if (lowIsGood) {
+      if (value <= thresholds.ok)   return '#22c55e';
+      if (value <= thresholds.warn) return '#f97316';
+      return '#ef4444';
+    } else {
+      if (value >= thresholds.ok)   return '#22c55e';
+      if (value >= thresholds.warn) return '#f97316';
+      return '#ef4444';
+    }
+  };
+  const colour = getColour();
+
+  // Arc math: semi-circle from 180° to 0° (left to right)
+  // cx=60, cy=60, r=46
+  // arc length = π * r = 144.5
+  const r = 46;
+  const arcLen = Math.PI * r; // ~144.5
+  const filled = (value / 100) * arcLen;
+  const gap    = arcLen - filled;
+
+  return (
+    <div className="glass-card meter-card" style={{ borderColor: colour + '33' }}>
+      <svg width="120" height="68" viewBox="0 0 120 68" className="meter-svg">
+        {/* Track */}
+        <path
+          d="M7,63 A53,53 0 0,1 113,63"
+          fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" strokeLinecap="round"
+        />
+        {/* Fill */}
+        <path
+          d="M7,63 A53,53 0 0,1 113,63"
+          fill="none"
+          stroke={colour}
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${gap}`}
+          style={{ filter: `drop-shadow(0 0 5px ${colour}88)`, transition: 'stroke-dasharray .7s cubic-bezier(.4,0,.2,1)' }}
+        />
+        {/* Value text */}
+        <text x="60" y="58" textAnchor="middle" fontSize="16" fontWeight="800" fill={colour}>
+          {displayValue}
+        </text>
+      </svg>
+      <span className="meter-label">{label}</span>
+      <span className="meter-subtitle">{subtitle}</span>
+      <span className="meter-helptext">{helpText}</span>
     </div>
   );
 };
