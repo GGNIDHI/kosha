@@ -59,7 +59,7 @@ async function extractText() {
 
 async function callGemini(text) {
   console.log('2. Sending text to Gemini API for parsing...');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `
 You are an expert financial analyzer. Parse the following bank statement text and extract all transactions.

@@ -7,7 +7,7 @@ export async function parseBankStatementWithGemini(
   text: string,
   apiKey: string
 ): Promise<Transaction[]> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `
 You are an expert financial analyzer. Parse the following bank statement text and extract all transactions.
@@ -104,7 +104,7 @@ export async function parseSalarySlipWithGemini(
   text: string,
   apiKey: string
 ): Promise<SalarySlip> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `
 You are an expert financial analyzer. Parse the following salary slip text and extract the salary components.
