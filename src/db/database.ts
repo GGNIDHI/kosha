@@ -41,11 +41,18 @@ export interface Investment {
   lastUpdated: string;
 }
 
+export interface Budget {
+  id: string; // category name is the primary key
+  category: string;
+  monthlyLimit: number;
+}
+
 class KoshaDB extends Dexie {
   settings!: Table<Setting, string>;
   transactions!: Table<Transaction, string>;
   salarySlips!: Table<SalarySlip, string>;
   investments!: Table<Investment, string>;
+  budgets!: Table<Budget, string>;
 
   constructor() {
     super('KoshaFinanceDB');
@@ -54,6 +61,9 @@ class KoshaDB extends Dexie {
       transactions: 'id, date, category, type, source',
       salarySlips: 'id, [year+month], year, month',
       investments: 'id, symbol',
+    });
+    this.version(2).stores({
+      budgets: 'id, category'
     });
   }
 }

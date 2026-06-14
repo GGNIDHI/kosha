@@ -1,14 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/database';
+import { db, getSetting } from '../db/database';
 import type { Transaction } from '../db/database';
-import { Plus, Search, Trash2, Filter, X, ArrowUpRight, ArrowDownLeft, FileSpreadsheet, ReceiptText } from 'lucide-react';
+import { formatAmount } from '../utils/currency';
+import { detectRecurring } from '../utils/recurringDetector';
+import { Plus, Search, Trash2, Filter, X, ArrowUpRight, ArrowDownLeft, FileSpreadsheet, ReceiptText, RefreshCw } from 'lucide-react';
 
 export const LedgerView: React.FC = () => {
+  const [currency, setCurrency] = useState('INR');
   const [showForm, setShowForm] = useState(false);
+  const [showRecurring, setShowRecurring] = useState(false);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterType, setFilterType] = useState('All');
+
+  useEffect(() => {
+    getSetting('currency', 'INR').then(setCurrency);
+  }, []);
   
   // Form State
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -76,6 +84,12 @@ export const LedgerView: React.FC = () => {
 
   const categories = ['Food', 'Shopping', 'Utilities', 'Travel', 'Salary', 'Investment', 'Health', 'Entertainment', 'Others'];
 
+  // Detect recurring transactions
+  const recurringTxs = detectRecurring(transactions);
+  const totalMonthlyRecurring = recurringTxs
+    .filter(r => r.frequency === 'monthly')
+    .reduce((s, r) => s + r.averageAmount, 0);
+
   return (
     <div className="view-container animate-fade-in">
       <header className="view-header-row">
@@ -83,11 +97,53 @@ export const LedgerView: React.FC = () => {
           <h1>Transactions</h1>
           <p>Review and manage all manual and parsed transaction entries.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-          <Plus size={18} />
-          <span>Add Transaction</span>
-        </button>
+        <div style={{display:'flex', gap:10}}>
+          {recurringTxs.length > 0 && (
+            <button
+              className={`btn ${showRecurring ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setShowRecurring(v => !v)}
+            >
+              <RefreshCw size={16} />
+              <span>Recurring ({recurringTxs.length})</span>
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+            <Plus size={18} />
+            <span>Add Transaction</span>
+          </button>
+        </div>
       </header>
+
+      {/* Recurring Transactions Panel */}
+      {showRecurring && recurringTxs.length > 0 && (
+        <div className="glass-card recurring-panel">
+          <div className="recurring-panel-header">
+            <div>
+              <h3><RefreshCw size={15} style={{display:'inline',marginRight:6,verticalAlign:'middle'}}/>Recurring Transactions Detected</h3>
+              <p className="recurring-panel-sub">
+                {recurringTxs.length} recurring patterns found &mdash; estimated {formatAmount(totalMonthlyRecurring, currency)}/month in subscriptions
+              </p>
+            </div>
+          </div>
+          <div className="recurring-grid">
+            {recurringTxs.map((r, i) => (
+              <div key={i} className="recurring-item">
+                <div className="recurring-item-top">
+                  <span className="recurring-desc">{r.description}</span>
+                  <span className={`recurring-badge freq-${r.frequency}`}>{r.frequency}</span>
+                </div>
+                <div className="recurring-item-bottom">
+                  <span className="recurring-cat">{r.category}</span>
+                  <span className="recurring-amount">{formatAmount(r.averageAmount, currency)}</span>
+                </div>
+                <div className="recurring-meta">
+                  {r.occurrences}x detected &bull; last on {r.lastDate}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Manual Input Drawer / Overlay */}
       {showForm && (
@@ -279,7 +335,7 @@ export const LedgerView: React.FC = () => {
                         {tx.type === 'credit' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
                       </span>
                       <span>
-                        {tx.type === 'credit' ? '+' : '-'} {tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {tx.type === 'credit' ? '+' : '-'} {formatAmount(tx.amount, currency)}
                       </span>
                     </td>
                     <td className="text-center">
@@ -635,6 +691,99 @@ export const LedgerView: React.FC = () => {
           width: 100%;
           padding: 12px;
           margin-top: 16px;
+        }
+
+        /* Recurring panel */
+        .recurring-panel {
+          padding: 20px 24px;
+          border: 1px solid rgba(99, 102, 241, 0.15);
+        }
+
+        .recurring-panel-header {
+          margin-bottom: 16px;
+        }
+
+        .recurring-panel-header h3 {
+          font-size: 1rem;
+          font-weight: 700;
+          color: var(--text-primary);
+          margin-bottom: 4px;
+        }
+
+        .recurring-panel-sub {
+          font-size: 0.82rem;
+          color: var(--text-muted);
+        }
+
+        .recurring-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 12px;
+        }
+
+        .recurring-item {
+          background: rgba(255,255,255,0.03);
+          border: 1px solid var(--border-glass);
+          border-radius: var(--border-radius-md);
+          padding: 12px 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .recurring-item-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+        }
+
+        .recurring-desc {
+          font-size: 0.88rem;
+          font-weight: 600;
+          color: var(--text-primary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .recurring-badge {
+          flex-shrink: 0;
+          font-size: 0.65rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          padding: 2px 7px;
+          border-radius: 99px;
+        }
+
+        .freq-monthly   { background: rgba(99,102,241,0.12); color: #818cf8; }
+        .freq-bi-weekly { background: rgba(236,72,153,0.12); color: #f472b6; }
+        .freq-weekly    { background: rgba(234,179,8,0.12);  color: #fbbf24; }
+
+        .recurring-item-bottom {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .recurring-cat {
+          font-size: 0.75rem;
+          color: var(--text-muted);
+        }
+
+        .recurring-amount {
+          font-size: 0.95rem;
+          font-weight: 800;
+          color: var(--danger);
+        }
+
+        .recurring-meta {
+          font-size: 0.72rem;
+          color: var(--text-muted);
+          border-top: 1px solid var(--border-glass);
+          padding-top: 6px;
+          margin-top: 2px;
         }
       `}</style>
     </div>

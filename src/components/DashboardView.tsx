@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/database';
+import { db, getSetting } from '../db/database';
+import { formatAmount } from '../utils/currency';
+import { detectRecurring } from '../utils/recurringDetector';
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -20,7 +22,9 @@ import {
   Wallet, 
   CircleDollarSign, 
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Target,
+  RefreshCw
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -28,15 +32,22 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
-  // Fetch transactions, investments, and salary slips
+  const [currency, setCurrency] = useState('INR');
+
+  useEffect(() => {
+    getSetting('currency', 'INR').then(setCurrency);
+  }, []);
+
+  // Fetch transactions, investments, salary slips, and budgets
   const data = useLiveQuery(async () => {
     const transactions = await db.transactions.toArray();
     const investments = await db.investments.toArray();
     const salarySlips = await db.salarySlips.toArray();
-    return { transactions, investments, salarySlips };
-  }, []) || { transactions: [], investments: [], salarySlips: [] };
+    const budgets = await db.budgets.toArray();
+    return { transactions, investments, salarySlips, budgets };
+  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [] };
 
-  const { transactions, investments, salarySlips } = data;
+  const { transactions, investments, salarySlips, budgets } = data;
 
   // 1. Calculate Aggregates
   const cashBalance = transactions.reduce((sum, tx) => {
@@ -141,6 +152,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     .sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)
     .slice(0, 3);
 
+  // Budget health: current month spending vs limits
+  const budgetHealth = budgets.map(b => {
+    const spent = currentMonthTxs
+      .filter(tx => tx.type === 'debit' && tx.category === b.category)
+      .reduce((s, tx) => s + tx.amount, 0);
+    const pct = Math.round((spent / b.monthlyLimit) * 100);
+    return { ...b, spent, pct };
+  }).sort((a, b) => b.pct - a.pct);
+
+  // Recurring transactions
+  const recurringTxs = detectRecurring(transactions).slice(0, 5);
+  const totalMonthlyRecurring = recurringTxs
+    .filter(r => r.frequency === 'monthly')
+    .reduce((s, r) => s + r.averageAmount, 0);
+
   const monthNamesFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   return (
@@ -165,7 +191,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             <PiggyBank size={24} className="banner-icon-piggy" />
             <span>Total Consolidated Net Worth</span>
           </div>
-          <h2>₹ {netWorth.toLocaleString(undefined, { maximumFractionDigits: 2 })}</h2>
+          <h2>{formatAmount(netWorth, currency)}</h2>
           <p>Combined liquid cash balances and stock market investments</p>
         </div>
 
@@ -175,7 +201,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <Wallet size={16} className="secondary-color" />
               <span>Liquid Cash</span>
             </div>
-            <h4>₹ {cashBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</h4>
+            <h4>{formatAmount(cashBalance, currency)}</h4>
           </div>
 
           <div className="sub-stat-item">
@@ -183,7 +209,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <CircleDollarSign size={16} className="primary-color" />
               <span>Investment Portfolio</span>
             </div>
-            <h4>₹ {portfolioValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</h4>
+            <h4>{formatAmount(portfolioValue, currency)}</h4>
           </div>
         </div>
       </div>
@@ -197,7 +223,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <ArrowDownLeft size={16} className="success-color" />
             </div>
           </div>
-          <span className="stat-value">₹ {monthlyIncome.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+          <span className="stat-value">{formatAmount(monthlyIncome, currency)}</span>
         </div>
 
         <div className="glass-card stat-card">
@@ -207,7 +233,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <ArrowUpRight size={16} className="danger-color" />
             </div>
           </div>
-          <span className="stat-value">₹ {monthlyExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+          <span className="stat-value">{formatAmount(monthlyExpenses, currency)}</span>
         </div>
 
         <div className="glass-card stat-card">
@@ -220,7 +246,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <div className="stat-value-group">
             <span className="stat-value">{savingsRate.toFixed(1)}%</span>
             <span className="pnl-percent badge badge-category">
-              ₹ {monthlySavings.toLocaleString(undefined, { maximumFractionDigits: 0 })} saved
+              {formatAmount(monthlySavings, currency)} saved
             </span>
           </div>
         </div>
@@ -255,7 +281,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                     borderRadius: '8px',
                     color: '#fff'
                   }}
-                  formatter={(value: any) => [`₹ ${Number(value).toLocaleString()}`]}
+                  formatter={(value: any) => [formatAmount(Number(value), currency)]}
                 />
                 <Legend verticalAlign="top" height={36} iconType="circle" />
                 <Area type="monotone" name="Income" dataKey="income" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorIncome)" />
@@ -287,7 +313,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                       borderRadius: '8px',
                       color: '#fff'
                     }}
-                    formatter={(value: any) => [`₹ ${Number(value).toLocaleString()}`, 'Amount Spent']}
+                    formatter={(value: any) => [formatAmount(Number(value), currency), 'Amount Spent']}
                   />
                   <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                     {categoryChartData.map((entry, index) => (
@@ -301,8 +327,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Lists Row */}
+      {/* Lists Row: Budget Health, Recurring, Recent Tx, Salary History */}
       <div className="dashboard-lists-row">
+
+        {/* Budget Health Section */}
+        {budgetHealth.length > 0 && (
+          <div className="glass-card dashboard-list-card">
+            <div className="list-card-header">
+              <h3><Target size={16} style={{display:'inline',marginRight:6,verticalAlign:'middle'}} />Budget Health</h3>
+              <button className="btn-link" onClick={() => onNavigate('budgets')}>
+                <span>Manage</span>
+                <ArrowRight size={14} />
+              </button>
+            </div>
+            <div className="list-card-body">
+              <div className="budget-health-list">
+                {budgetHealth.map(b => (
+                  <div key={b.category} className="bh-item">
+                    <div className="bh-meta">
+                      <span className="bh-cat">{b.category}</span>
+                      <span className={`bh-pct ${b.pct >= 100 ? 'over' : b.pct >= 80 ? 'warn' : 'ok'}`}>
+                        {b.pct}%
+                      </span>
+                    </div>
+                    <div className="bh-bar-track">
+                      <div
+                        className="bh-bar-fill"
+                        style={{
+                          width: `${Math.min(100, b.pct)}%`,
+                          background: b.pct >= 100 ? '#ef4444' : b.pct >= 80 ? '#f97316' : '#22c55e'
+                        }}
+                      />
+                    </div>
+                    <div className="bh-amounts">
+                      <span>{formatAmount(b.spent, currency)}</span>
+                      <span className="text-muted">/ {formatAmount(b.monthlyLimit, currency)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Recurring Subscriptions Widget */}
+        {recurringTxs.length > 0 && (
+          <div className="glass-card dashboard-list-card">
+            <div className="list-card-header">
+              <h3><RefreshCw size={15} style={{display:'inline',marginRight:6,verticalAlign:'middle'}} />Recurring Spend</h3>
+              {totalMonthlyRecurring > 0 && (
+                <span className="recurring-monthly-total">{formatAmount(totalMonthlyRecurring, currency)}/mo</span>
+              )}
+            </div>
+            <div className="list-card-body">
+              <div className="mini-ledger-list">
+                {recurringTxs.map((r, i) => (
+                  <div key={i} className="mini-ledger-item">
+                    <div className="item-details">
+                      <span className="item-desc">{r.description}</span>
+                      <span className="item-meta">{r.category} &bull; last {r.lastDate}</span>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
+                      <span className="item-value debit">{formatAmount(r.averageAmount, currency)}</span>
+                      <span className={`recurring-freq-badge freq-${r.frequency}`}>{r.frequency}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Recent Transactions Widget */}
         <div className="glass-card dashboard-list-card">
           <div className="list-card-header">
@@ -312,7 +407,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <ArrowRight size={14} />
             </button>
           </div>
-
           <div className="list-card-body">
             {recentTransactions.length === 0 ? (
               <div className="empty-list-state">
@@ -324,10 +418,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                   <div key={tx.id} className="mini-ledger-item">
                     <div className="item-details">
                       <span className="item-desc">{tx.description}</span>
-                      <span className="item-meta">{tx.date} • {tx.category}</span>
+                      <span className="item-meta">{tx.date} &bull; {tx.category}</span>
                     </div>
                     <span className={`item-value ${tx.type}`}>
-                      {tx.type === 'credit' ? '+' : '-'} ₹{tx.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {tx.type === 'credit' ? '+' : '-'} {formatAmount(tx.amount, currency)}
                     </span>
                   </div>
                 ))}
@@ -336,7 +430,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        {/* Parsed Salary Slips History Widget */}
+        {/* AI Parsed Salary History Widget */}
         <div className="glass-card dashboard-list-card">
           <div className="list-card-header">
             <h3>AI Parsed Salary History</h3>
@@ -345,7 +439,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <ArrowRight size={14} />
             </button>
           </div>
-
           <div className="list-card-body">
             {recentSalarySlips.length === 0 ? (
               <div className="empty-list-state">
@@ -358,11 +451,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                     <div className="item-details">
                       <span className="item-desc">{monthNamesFull[slip.month - 1]} {slip.year}</span>
                       <span className="item-meta">
-                        Basic: ₹{slip.basicPay.toLocaleString()} • Deductions: ₹{(slip.providentFund + slip.taxDeducted + slip.otherDeductions).toLocaleString()}
+                        Basic: {formatAmount(slip.basicPay, currency)} &bull; Deductions: {formatAmount(slip.providentFund + slip.taxDeducted + slip.otherDeductions, currency)}
                       </span>
                     </div>
                     <div className="salary-takehome">
-                      <span className="salary-takehome-val">₹{slip.netPay.toLocaleString()}</span>
+                      <span className="salary-takehome-val">{formatAmount(slip.netPay, currency)}</span>
                       <span className="salary-takehome-lbl">Net Credit</span>
                     </div>
                   </div>
@@ -371,7 +464,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             )}
           </div>
         </div>
+
       </div>
+
 
       <style>{`
         .badge-ai-status {
@@ -633,6 +728,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           font-size: 0.7rem;
           color: var(--text-muted);
           font-weight: 500;
+        }
+
+        /* Budget Health Widget */
+        .budget-health-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .bh-item {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+
+        .bh-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .bh-cat {
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+
+        .bh-pct {
+          font-size: 0.78rem;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 99px;
+        }
+
+        .bh-pct.ok { background: rgba(34,197,94,0.12); color: #22c55e; }
+        .bh-pct.warn { background: rgba(249,115,22,0.12); color: #f97316; }
+        .bh-pct.over { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+        .bh-bar-track {
+          height: 5px;
+          background: rgba(255,255,255,0.05);
+          border-radius: 99px;
+          overflow: hidden;
+        }
+
+        .bh-bar-fill {
+          height: 100%;
+          border-radius: 99px;
+          transition: width 0.5s ease;
+        }
+
+        .bh-amounts {
+          display: flex;
+          gap: 4px;
+          font-size: 0.78rem;
+          color: var(--text-secondary);
+        }
+
+        .bh-amounts .text-muted { color: var(--text-muted); }
+
+        /* Recurring widget */
+        .recurring-monthly-total {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: var(--danger);
+          background: rgba(239,68,68,0.08);
+          padding: 3px 9px;
+          border-radius: 99px;
+          border: 1px solid rgba(239,68,68,0.15);
+        }
+
+        .recurring-freq-badge {
+          font-size: 0.68rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: rgba(99,102,241,0.12);
+          color: var(--primary);
         }
       `}</style>
     </div>

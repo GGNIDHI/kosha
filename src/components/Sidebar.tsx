@@ -4,6 +4,7 @@ import {
   ReceiptText, 
   FileUp, 
   TrendingUp, 
+  Target,
   Settings as SettingsIcon,
   PiggyBank
 } from 'lucide-react';
@@ -19,6 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     { id: 'ledger', name: 'Transactions', icon: ReceiptText },
     { id: 'uploads', name: 'AI PDF Analyzer', icon: FileUp },
     { id: 'investments', name: 'Investments', icon: TrendingUp },
+    { id: 'budgets', name: 'Budgets', icon: Target },
     { id: 'settings', name: 'Settings', icon: SettingsIcon },
   ];
 

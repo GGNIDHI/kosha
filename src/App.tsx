@@ -4,6 +4,7 @@ import { DashboardView } from './components/DashboardView';
 import { LedgerView } from './components/LedgerView';
 import { PdfParserView } from './components/PdfParserView';
 import { InvestmentsView } from './components/InvestmentsView';
+import { BudgetsView } from './components/BudgetsView';
 import { SettingsView } from './components/SettingsView';
 import './App.css';
 
@@ -20,6 +21,8 @@ function App() {
         return <PdfParserView />;
       case 'investments':
         return <InvestmentsView />;
+      case 'budgets':
+        return <BudgetsView />;
       case 'settings':
         return <SettingsView />;
       default:
