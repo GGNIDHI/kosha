@@ -335,7 +335,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     return { ...b, spent, pct: Math.round((spent/b.monthlyLimit)*100) };
   }).sort((a,b)=>b.pct-a.pct);
 
-  const healthScore = computeHealthScore(transactions, budgets, salarySlips, totalMonthlyRecurring, cashBalance);
+  const healthScore = computeHealthScore(periodTxs, budgets, salarySlips, totalMonthlyRecurring, cashBalance);
 
   const netWorthChartData = netWorthHistory.slice(-12).map(s => ({
     label: s.id, netWorth: s.netWorth, cash: s.cashBalance, portfolio: s.portfolioValue,

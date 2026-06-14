@@ -27,17 +27,10 @@ export function computeHealthScore(
   monthlyRecurringTotal: number,
   cashBalance: number,
 ): HealthScoreBreakdown {
-  const today = new Date();
-  const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-
-  // Smart month: use current month if it has data, else fall back to most recent month with transactions
-  const allMonths = [...new Set(transactions.map(t => t.date.slice(0, 7)))].sort().reverse();
-  const activeMonthStr = allMonths.includes(currentMonthStr) ? currentMonthStr : (allMonths[0] ?? currentMonthStr);
-
-  const currentMonthTxs = transactions.filter(t => t.date.startsWith(activeMonthStr));
-  const monthlyIncome   = currentMonthTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
-  const monthlyExpenses = currentMonthTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
-
+  // Use the transactions as passed — caller is responsible for period filtering
+  const periodTxs     = transactions;
+  const monthlyIncome   = periodTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
+  const monthlyExpenses = periodTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
 
   // 1. Savings Rate (25 pts)
   const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0;
@@ -52,7 +45,7 @@ export function computeHealthScore(
   let inLimitCount = 0;
   if (budgets.length > 0) {
     budgets.forEach(b => {
-      const spent = currentMonthTxs
+      const spent = periodTxs
         .filter(t => t.type === 'debit' && t.category === b.category)
         .reduce((s, t) => s + t.amount, 0);
       if (spent <= b.monthlyLimit) inLimitCount++;
@@ -70,7 +63,7 @@ export function computeHealthScore(
   else if (monthsCovered >= 1) efScore = 7;
 
   // 4. Investment Rate (20 pts) — salary slips may have PF; also look for Investment category credits
-  const investmentDebits = currentMonthTxs.filter(t => t.category === 'Investment').reduce((s, t) => s + t.amount, 0);
+  const investmentDebits = periodTxs.filter(t => t.category === 'Investment').reduce((s, t) => s + t.amount, 0);
   const latestSlip = [...salarySlips].sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)[0];
   const totalPF = latestSlip?.providentFund ?? 0;
   const totalInvested = investmentDebits + totalPF;
