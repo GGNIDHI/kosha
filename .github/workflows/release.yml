@@ -9,22 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  create_release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Release ${{ github.ref_name }}
-          draft: false
-          generate_release_notes: true
-
-  release:
-    needs: create_release
+  build:
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +36,6 @@ jobs:
       - name: Sync version from tag
         run: |
           TAG=${GITHUB_REF#refs/tags/v}
-          # Pad to semver: v1.0 -> 1.0.0, v1 -> 1.0.0
           IFS='.' read -ra PARTS <<< "$TAG"
           MAJOR="${PARTS[0]:-0}"
           MINOR="${PARTS[1]:-0}"
@@ -61,7 +47,14 @@ jobs:
       - name: Build App
         run: npm run build
 
-      - name: Build and Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish always
+      - name: Package (no publish)
+        run: npx electron-builder --publish never
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*.dmg
+            release/*.exe
+            release/*.zip
