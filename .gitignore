@@ -25,3 +25,8 @@ dist-ssr
 
 # Bank statements
 *.pdf
+
+# Standalone Node.js & Electron releases
+node-portable/
+release/
+

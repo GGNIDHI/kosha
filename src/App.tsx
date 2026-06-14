@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { LedgerView } from './components/LedgerView';
@@ -12,10 +12,40 @@ import { TaxView } from './components/TaxView';
 import { CsvImportView } from './components/CsvImportView';
 import { CategoriesView } from './components/CategoriesView';
 import { SettingsView } from './components/SettingsView';
+import { OnboardingView } from './components/OnboardingView';
+import { getSetting } from './db/database';
 import './App.css';
 
 function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
+  const [isInitialized, setIsInitialized] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    async function checkInit() {
+      const initialized = await getSetting('hasBeenInitialized', false);
+      setIsInitialized(initialized);
+    }
+    checkInit();
+  }, []);
+
+  if (isInitialized === null) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: 'var(--bg-app)',
+        color: 'var(--text-secondary)'
+      }}>
+        Loading Kosha...
+      </div>
+    );
+  }
+
+  if (!isInitialized) {
+    return <OnboardingView onComplete={() => setIsInitialized(true)} />;
+  }
 
   const renderCurrentView = () => {
     switch (currentView) {

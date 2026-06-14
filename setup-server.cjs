@@ -81,13 +81,29 @@ const server = http.createServer((req, res) => {
 
 function launchStandalone(port) {
   if (process.platform === 'darwin') {
-    exec('osascript -e \'id of application "Google Chrome"\'', (err) => {
-      if (!err) {
-        exec(`open -a "Google Chrome" --args --app=http://localhost:${port}`);
-      } else {
-        exec(`open http://localhost:${port}`);
+    let hasChrome = false;
+    try {
+      // 1. Direct path check (fastest, no process spawned)
+      const chromePaths = [
+        '/Applications/Google Chrome.app',
+        path.join(os.homedir(), 'Applications/Google Chrome.app')
+      ];
+      hasChrome = chromePaths.some(p => fs.existsSync(p));
+      
+      // 2. Spotlight check (fallback, doesn't trigger AppleScript locate prompts)
+      if (!hasChrome) {
+        const stdout = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.google.Chrome\'"', { stdio: ['ignore', 'pipe', 'ignore'] });
+        hasChrome = stdout.toString().trim().length > 0;
       }
-    });
+    } catch (e) {
+      hasChrome = false;
+    }
+
+    if (hasChrome) {
+      exec(`open -a "Google Chrome" --args --app=http://localhost:${port}`);
+    } else {
+      exec(`open http://localhost:${port}`);
+    }
   } else {
     exec('where chrome', (err) => {
       if (!err) {
@@ -123,8 +139,9 @@ async function runInstallation(data) {
         const relative = path.relative(PROJECT_SRC, src);
         return !relative.includes('node_modules') &&
                !relative.includes('Kosha Launcher.app') &&
-               !relative.includes('setup-server.js') &&
+               !relative.includes('setup-server.cjs') &&
                !relative.includes('setup.html') &&
+               !relative.includes('bootstrap.sh') &&
                !relative.includes('.git');
       }
     });
@@ -213,12 +230,23 @@ async function runInstallation(data) {
         tell application "Finder" to set projectFolder to container of (path to me) as alias
         set projectPath to POSIX path of projectFolder
         set userPort to "${data.port}"
-        do shell script "export PATH=\"${nodeDir}:\\$PATH\" && cd \\"" & projectPath & "\\" && (lsof -i :" & userPort & " >/dev/null || nohup \\"${nodePath}\\" node_modules/vite/bin/vite.js --port " & userPort & " >/dev/null 2>&1 &)"
+        do shell script "export PATH=\"${nodeDir}:\\$PATH\" && cd \\"" & projectPath & "\\" && (lsof -i :" & userPort & " >/dev/null || nohup \\"${nodePath}\\" node_modules/vite/bin/vite.js --port " & userPort & " >/dev/null 2>&1 </dev/null &)"
+        
+        set chromeInstalled to false
         try
-          do shell script "open -a 'Google Chrome' --args --app=http://localhost:" & userPort
-        on error
-          do shell script "open 'http://localhost:'" & userPort
+          do shell script "[ -d '/Applications/Google Chrome.app' ] || [ -d \\"\\$HOME/Applications/Google Chrome.app\\" ] || [ -n \\"\\$(mdfind kMDItemCFBundleIdentifier == 'com.google.Chrome')\\" ]"
+          set chromeInstalled to true
         end try
+        
+        if chromeInstalled then
+          try
+            do shell script "open -a 'Google Chrome' --args --app=http://localhost:" & userPort
+          on error
+            do shell script "open http://localhost:" & userPort
+          end try
+        else
+          do shell script "open http://localhost:" & userPort
+        end if
       `;
       const tempScript = '/tmp/KoshaStartup.applescript';
       fs.writeFileSync(tempScript, startupAppleScript);
