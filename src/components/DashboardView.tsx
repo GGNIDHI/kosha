@@ -170,6 +170,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [selYear,  setSelYear]  = useState<string>('all');   // 'all' | '2025' | '2026'
   const [selMonth, setSelMonth] = useState<string>('all');   // 'all' | '01'..'12'
   const [selWeek,  setSelWeek]  = useState<string>('all');   // 'all' | 'Wk1 (1–7)' label
+  const hasAutoSelected = React.useRef(false);
 
   useEffect(() => {
     getSetting('currency', 'INR').then(setCurrency);
@@ -186,6 +187,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], debts: [], netWorthHistory: [] };
 
   const { transactions, investments, salarySlips, budgets, debts, netWorthHistory } = raw;
+
+  // ── Auto-select most recent month with data on first load ─────────────────
+  useEffect(() => {
+    if (hasAutoSelected.current) return;
+    if (transactions.length === 0) return;
+    const allMonths = [...new Set(transactions.map(tx => tx.date.slice(0, 7)))].sort().reverse();
+    if (allMonths.length === 0) return;
+    const [year, month] = allMonths[0].split('-');
+    setSelYear(year);
+    setSelMonth(month);
+    hasAutoSelected.current = true;
+  }, [transactions]);
 
   // ── Derived: available years ──────────────────────────────────────────────
   const availableYears = useMemo(() =>
@@ -399,7 +412,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <span className="period-active-badge">{periodLabel}</span>
 
         {(selYear !== 'all') && (
-          <button className="period-reset-btn" onClick={() => { setSelYear('all'); setSelMonth('all'); setSelWeek('all'); }}>
+          <button className="period-reset-btn" onClick={() => {
+            const allMonths = [...new Set(transactions.map(tx => tx.date.slice(0, 7)))].sort().reverse();
+            if (allMonths.length > 0) {
+              const [y, m] = allMonths[0].split('-');
+              setSelYear(y); setSelMonth(m); setSelWeek('all');
+            } else {
+              setSelYear('all'); setSelMonth('all'); setSelWeek('all');
+            }
+          }}>
             <X size={13} /> Reset
           </button>
         )}
