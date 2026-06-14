@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Kosha Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --primary: #8b5cf6;
+      --primary-hover: #7c3aed;
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at top right, rgba(139, 92, 246, 0.15), transparent 40%),
+                  radial-gradient(circle at bottom left, rgba(6, 182, 212, 0.12), transparent 45%),
+                  var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .setup-container {
+      width: 100%;
+      max-width: 580px;
+      padding: 20px;
+      perspective: 1000px;
+    }
+
+    .glass-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-container {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .logo-glow {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #a78bfa, #8b5cf6);
+      border-radius: 20px;
+      box-shadow: 0 0 30px rgba(139, 92, 246, 0.4);
+    }
+
+    .step-content {
+      display: none;
+      animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .step-content.active {
+      display: block;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 8px;
+      background: linear-gradient(to right, #f8fafc, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      text-align: center;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      margin-bottom: 32px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 8px;
+    }
+
+    .form-input {
+      flex: 1;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.3s;
+    }
+
+    .form-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+      background: rgba(15, 23, 42, 0.8);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 14px 24px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      width: 100%;
+    }
+
+    .btn:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: none;
+    }
+
+    .btn-browse {
+      width: auto;
+      flex-shrink: 0;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    /* Progress and Loading state */
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), #06b6d4);
+      border-radius: 99px;
+      transition: width 0.4s ease-out;
+    }
+
+    .progress-status {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+    }
+
+    .log-terminal {
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #38bdf8;
+      height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .success-icon {
+      color: #22c55e;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 24px;
+      animation: scaleUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    @keyframes scaleUp {
+      from { transform: scale(0.5); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="setup-container">
+    <div class="glass-card">
+      <div class="logo-container">
+        <div class="logo-glow">
+          <i data-lucide="wallet" size="40" style="color: white;"></i>
+        </div>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div id="step-welcome" class="step-content active">
+        <h1>Welcome to Kosha Setup</h1>
+        <p class="subtitle">Kosha is your private, AI-powered financial dashboard. Let's get everything installed and configured locally in just a few clicks.</p>
+        <button class="btn" onclick="nextStep(2)">
+          <span>Get Started</span>
+          <i data-lucide="arrow-right" size="18"></i>
+        </button>
+      </div>
+
+      <!-- Step 2: Location -->
+      <div id="step-location" class="step-content">
+        <h1>Installation Folder</h1>
+        <p class="subtitle">Select where you would like to copy the application workspace and local server environment.</p>
+        
+        <div class="form-group">
+          <label for="install-path">Installation Path</label>
+          <div class="input-wrapper">
+            <input type="text" id="install-path" class="form-input" placeholder="Select target folder...">
+            <button class="btn btn-secondary btn-browse" onclick="browseFolder()">
+              <i data-lucide="folder-open" size="18"></i>
+              <span>Browse</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="nextStep(1)">Back</button>
+          <button class="btn" onclick="validateLocation()">Next</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Profile Settings -->
+      <div id="step-profile" class="step-content">
+        <h1>Profile & Preferences</h1>
+        <p class="subtitle">Set up your profile details. All data is kept 100% private and stored locally on your device.</p>
+
+        <div class="form-group">
+          <label for="profile-name">Profile Name</label>
+          <input type="text" id="profile-name" class="form-input" value="User">
+        </div>
+
+        <div class="form-group">
+          <label for="base-currency">Base Currency</label>
+          <select id="base-currency" class="form-input" style="color: white;">
+            <option value="INR">INR (₹) - Indian Rupee</option>
+            <option value="USD">USD ($) - US Dollar</option>
+            <option value="EUR">EUR (€) - Euro</option>
+            <option value="GBP">GBP (£) - British Pound</option>
+            <option value="JPY">JPY (¥) - Japanese Yen</option>
+          </select>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="nextStep(2)">Back</button>
+          <button class="btn" onclick="nextStep(4)">Next</button>
+        </div>
+      </div>
+
+      <!-- Step 4: AI Settings -->
+      <div id="step-ai" class="step-content">
+        <h1>AI Credentials (Optional)</h1>
+        <p class="subtitle">To enable AI-powered PDF bank statements and insights, enter your Gemini key. You can also skip this and add it later.</p>
+
+        <div class="form-group">
+          <label for="gemini-key">🔑 Google Gemini API Key</label>
+          <input type="password" id="gemini-key" class="form-input" placeholder="Enter API key or skip...">
+        </div>
+
+        <div class="form-group">
+          <label for="port-num">🔢 Local Server Port</label>
+          <input type="text" id="port-num" class="form-input" value="7673">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="nextStep(3)">Back</button>
+          <button class="btn" onclick="startInstallation()">Install & Configure</button>
+        </div>
+      </div>
+
+      <!-- Step 5: Progress -->
+      <div id="step-progress" class="step-content">
+        <h1 id="progress-heading">Installing Kosha</h1>
+        <p class="subtitle" id="progress-subtitle">Downloading standalone packages and copying templates...</p>
+
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+        
+        <div class="progress-status">
+          <span id="progress-percentage">0%</span>
+          <span id="progress-text">Initializing installation...</span>
+        </div>
+
+        <div class="log-terminal" id="terminal-logs"></div>
+      </div>
+
+      <!-- Step 6: Success -->
+      <div id="step-success" class="step-content">
+        <div class="success-icon">
+          <i data-lucide="check-circle-2" size="64"></i>
+        </div>
+        <h1>Setup Complete!</h1>
+        <p class="subtitle">Kosha has been successfully installed. It should now automatically open in a standalone desktop window on your computer.</p>
+        <p class="subtitle" style="font-size: 0.82rem; margin-top: -16px; margin-bottom: 24px;">(If the app window did not pop up, click the button below to open in this browser tab instead.)</p>
+        <button class="btn btn-secondary" onclick="launchApp()">
+          <span>Open Dashboard here</span>
+          <i data-lucide="external-link" size="18"></i>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    let currentStep = 1;
+    let installData = {
+      targetPath: '',
+      userName: '',
+      currency: '',
+      geminiKey: '',
+      port: '7673'
+    };
+
+    // Load default path on page load
+    fetch('/api/default-path')
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('install-path').value = data.path;
+      });
+
+    function nextStep(step) {
+      document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+      document.getElementById('step-' + getStepName(step)).classList.add('active');
+      currentStep = step;
+    }
+
+    function getStepName(step) {
+      const steps = ['welcome', 'location', 'profile', 'ai', 'progress', 'success'];
+      return steps[step - 1];
+    }
+
+    function browseFolder() {
+      fetch('/api/browse')
+        .then(res => res.json())
+        .then(data => {
+          if (data.path) {
+            document.getElementById('install-path').value = data.path;
+          }
+        });
+    }
+
+    function validateLocation() {
+      const path = document.getElementById('install-path').value.trim();
+      if (!path) {
+        alert('Please select or enter an installation path.');
+        return;
+      }
+      installData.targetPath = path;
+      nextStep(3);
+    }
+
+    function startInstallation() {
+      installData.userName = document.getElementById('profile-name').value.trim();
+      installData.currency = document.getElementById('base-currency').value;
+      installData.geminiKey = document.getElementById('gemini-key').value.trim();
+      installData.port = document.getElementById('port-num').value.trim();
+
+      nextStep(5);
+      
+      // Start progress monitoring
+      const logEl = document.getElementById('terminal-logs');
+      const progressFill = document.getElementById('progress-fill');
+      const percentageEl = document.getElementById('progress-percentage');
+      const textEl = document.getElementById('progress-text');
+
+      const interval = setInterval(() => {
+        fetch('/api/status')
+          .then(res => res.json())
+          .then(data => {
+            progressFill.style.width = data.percent + '%';
+            percentageEl.innerText = data.percent + '%';
+            textEl.innerText = data.statusText;
+            logEl.innerText = data.logs.join('\n');
+            logEl.scrollTop = logEl.scrollHeight;
+
+            if (data.percent >= 100) {
+              clearInterval(interval);
+              setTimeout(() => {
+                nextStep(6);
+              }, 800);
+            }
+          });
+      }, 500);
+
+      // Trigger the backend installation process
+      fetch('/api/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(installData)
+      });
+    }
+
+    function launchApp() {
+      window.location.href = `http://localhost:${installData.port}`;
+    }
+  </script>
+</body>
+</html>
