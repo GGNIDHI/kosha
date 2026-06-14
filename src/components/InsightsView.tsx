@@ -48,17 +48,21 @@ export const InsightsView: React.FC = () => {
     const { transactions, budgets, salarySlips, investments, goals, debts } = data;
     const today = new Date();
     const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const currentMonthTxs = transactions.filter(t => t.date.startsWith(monthStr));
-    const income   = currentMonthTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
-    const expenses = currentMonthTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
+    // Smart month: use most recent month with data
+    const allMonths = [...new Set(transactions.map((t: any) => t.date.slice(0, 7)))].sort().reverse();
+    const activeMonth = allMonths.includes(monthStr) ? monthStr : (allMonths[0] ?? monthStr);
+    const periodTxs = transactions.filter((t: any) => t.date.startsWith(activeMonth));
+
+    const income   = periodTxs.filter((t: any) => t.type === 'credit').reduce((s: number, t: any) => s + t.amount, 0);
+    const expenses = periodTxs.filter((t: any) => t.type === 'debit').reduce((s: number, t: any) => s + t.amount, 0);
     const recurring = detectRecurring(transactions);
-    const cash = transactions.reduce((s, t) => t.type === 'credit' ? s + t.amount : s - t.amount, 0);
-    const portfolio = investments.reduce((s, i) => s + i.quantity * (i.currentPrice || i.avgCost), 0);
-    const totalDebt = debts.reduce((s, d) => s + d.outstandingAmount, 0);
-    const hs = computeHealthScore(transactions, budgets, salarySlips, recurring.filter(r => r.frequency === 'monthly').reduce((s, r) => s + r.averageAmount, 0), cash);
+    const cash = transactions.reduce((s: number, t: any) => t.type === 'credit' ? s + t.amount : s - t.amount, 0);
+    const portfolio = investments.reduce((s: number, i: any) => s + i.quantity * (i.currentPrice || i.avgCost), 0);
+    const totalDebt = debts.reduce((s: number, d: any) => s + d.outstandingAmount, 0);
+    const hs = computeHealthScore(periodTxs, budgets, salarySlips, recurring.filter((r: any) => r.frequency === 'monthly').reduce((s: number, r: any) => s + r.averageAmount, 0), cash);
 
     const catBreakdown: Record<string, number> = {};
-    currentMonthTxs.filter(t => t.type === 'debit').forEach(t => {
+    periodTxs.filter((t: any) => t.type === 'debit').forEach((t: any) => {
       catBreakdown[t.category] = (catBreakdown[t.category] || 0) + t.amount;
     });
 
