@@ -89,6 +89,7 @@ ${text}
     const parsedData = JSON.parse(resultText);
     return parsedData.transactions.map((tx: any) => ({
       ...tx,
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       source: 'bank_statement'
     }));
   } catch (error) {
@@ -169,7 +170,11 @@ ${text}
       throw new Error('Empty response received from Gemini.');
     }
 
-    return JSON.parse(resultText) as SalarySlip;
+    const parsed = JSON.parse(resultText) as SalarySlip;
+    return {
+      ...parsed,
+      id: `slip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    };
   } catch (error) {
     console.error('Gemini Salary Slip Parsing Error:', error);
     throw error;

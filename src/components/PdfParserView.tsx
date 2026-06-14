@@ -172,9 +172,15 @@ export const PdfParserView: React.FC = () => {
       if (activeTab === 'bank') {
         if (parsedTransactions.length === 0) return;
         
+        // Ensure every transaction has a unique id before storing
+        const toInsert = parsedTransactions.map(tx => ({
+          ...tx,
+          id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        }));
+        
         // Bulk add transactions
-        await db.transactions.bulkAdd(parsedTransactions);
-        setSuccess(`Successfully imported ${parsedTransactions.length} transactions to your ledger!`);
+        await db.transactions.bulkAdd(toInsert);
+        setSuccess(`Successfully imported ${toInsert.length} transactions to your ledger!`);
         setParsedTransactions([]);
       } else {
         if (!parsedSalarySlip) return;
