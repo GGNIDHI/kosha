@@ -697,6 +697,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
 
       <style>{`
+        .view-container {
+          flex: 1;
+          padding: 32px 40px;
+          height: 100vh;
+          overflow-y: auto;
+          overflow-x: hidden;
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+        }
+
+        .view-header-row {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .view-header-row h1 {
+          font-size: 2.2rem;
+          font-weight: 800;
+          margin-bottom: 4px;
+        }
+
+        .view-header-row p {
+          color: var(--text-secondary);
+          font-size: 1rem;
+        }
+
         .badge-ai-status {
           display: flex;
           align-items: center;

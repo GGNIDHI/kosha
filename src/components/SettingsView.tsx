@@ -11,6 +11,7 @@ export const SettingsView: React.FC = () => {
   const [currency, setCurrency] = useState('INR');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [purgeSuccess, setPurgeSuccess] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -127,13 +128,22 @@ export const SettingsView: React.FC = () => {
       await db.transactions.clear();
       await db.salarySlips.clear();
       await db.investments.clear();
+      await db.budgets.clear();
+      await db.goals.clear();
+      await db.debts.clear();
+      await db.netWorthSnapshots.clear();
+      await db.parsedPdfs.clear();
+      // Keep default categories, only clear custom ones
+      await db.categories.where('isDefault').equals(0).delete();
       await db.settings.clear();
-      
+
       setApiKey('');
+      setGroqApiKey('');
       setUserName('User');
       setCurrency('INR');
       setResetConfirm(false);
-      alert('All local data cleared successfully.');
+      setPurgeSuccess(true);
+      setTimeout(() => setPurgeSuccess(false), 4000);
     } catch (err) {
       alert('Failed to reset database: ' + err);
     }
@@ -253,6 +263,13 @@ export const SettingsView: React.FC = () => {
               </div>
             )}
 
+            {purgeSuccess && (
+              <div className="alert alert-success-box">
+                <CheckCircle2 size={16} />
+                <span>All data purged. Kosha has been reset to a clean slate.</span>
+              </div>
+            )}
+
             {saveStatus === 'error' && (
               <div className="alert alert-error-box">
                 <AlertCircle size={16} />
@@ -296,20 +313,20 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div className="danger-zone">
-              <h4>Danger Zone</h4>
-              <p>Permanently delete all financial entries, investment holdings, and settings from this browser.</p>
-              
+              <h4>🗑️ Danger Zone — Purge All Data</h4>
+              <p>Permanently deletes <strong>everything</strong>: all transactions, salary slips, investments, budgets, goals, debts, parsed PDF history, API keys, and settings. Custom categories will also be removed. Default categories are preserved.</p>
+
               {!resetConfirm ? (
-                <button 
-                  onClick={() => setResetConfirm(true)} 
+                <button
+                  onClick={() => setResetConfirm(true)}
                   className="btn btn-danger flex-btn"
                 >
                   <Trash2 size={16} />
-                  <span>Purge Database</span>
+                  <span>Purge All Data</span>
                 </button>
               ) : (
                 <div className="reset-confirm-box">
-                  <p><ShieldAlert size={16} className="danger-color" /> Are you absolutely sure? This cannot be undone.</p>
+                  <p><ShieldAlert size={16} className="danger-color" /> This will wipe your entire Kosha database. This <strong>cannot be undone</strong>.</p>
                   <div className="confirm-buttons">
                     <button onClick={handleClearDatabase} className="btn btn-danger">
                       Yes, Delete Everything
