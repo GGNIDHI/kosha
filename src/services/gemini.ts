@@ -1,6 +1,23 @@
 import type { Transaction, SalarySlip } from '../db/database';
 
 /**
+ * Detects whether a Gemini API error should trigger a fallback to another provider.
+ * Returns true for quota, rate-limit, billing, and model-not-found errors.
+ */
+export function isGeminiFallbackError(error: any): boolean {
+  const message: string = error?.message || '';
+  return (
+    message.includes('quota') ||
+    message.includes('RESOURCE_EXHAUSTED') ||
+    message.includes('rate') ||
+    message.includes('billing') ||
+    message.includes('exceeded') ||
+    message.includes('is not found for API version') ||
+    message.includes('limit')
+  );
+}
+
+/**
  * Calls the Gemini API to parse bank statement text into a structured list of transactions.
  */
 export async function parseBankStatementWithGemini(

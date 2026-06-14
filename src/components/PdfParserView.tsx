@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { db, getSetting } from '../db/database';
 import type { Transaction, SalarySlip } from '../db/database';
 import { extractTextFromPdf, renderPdfPageToCanvas } from '../services/pdfParser';
-import { parseBankStatementWithGemini, parseSalarySlipWithGemini } from '../services/gemini';
+import { parseBankStatementWithGemini, parseSalarySlipWithGemini, isGeminiFallbackError } from '../services/gemini';
+import { parseBankStatementWithGroq, parseSalarySlipWithGroq } from '../services/groq';
 import { 
   FileUp, 
   Loader2, 
@@ -20,6 +21,7 @@ export const PdfParserView: React.FC = () => {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [groqApiKey, setGroqApiKey] = useState<string | null>(null);
   
   // Password states
   const [passwordRequired, setPasswordRequired] = useState(false);
@@ -40,11 +42,13 @@ export const PdfParserView: React.FC = () => {
   const [showPdfPreview, setShowPdfPreview] = useState(false);
 
   useEffect(() => {
-    async function checkApiKey() {
+    async function loadKeys() {
       const key = await getSetting('geminiApiKey', '');
+      const groqKey = await getSetting('groqApiKey', '');
       setApiKey(key || null);
+      setGroqApiKey(groqKey || null);
     }
-    checkApiKey();
+    loadKeys();
   }, []);
 
   const handleDrag = (e: React.DragEvent) => {
@@ -104,24 +108,61 @@ export const PdfParserView: React.FC = () => {
       setLoadingStep('Extracting text from PDF...');
       const extractedText = await extractTextFromPdf(file, activePassword);
       
-      setLoadingStep('Analyzing layout with Gemini AI...');
-      if (activeTab === 'bank') {
-        const txs = await parseBankStatementWithGemini(extractedText, apiKey);
-        
-        // Attach source file name
-        const mappedTxs = txs.map(t => ({ ...t, pdfName: file.name }));
-        setParsedTransactions(mappedTxs);
-      } else {
-        const slip = await parseSalarySlipWithGemini(extractedText, apiKey);
-        slip.pdfName = file.name;
-        setParsedSalarySlip(slip);
+      setLoadingStep('Analyzing with Gemini AI...');
+      
+      const runWithGemini = async () => {
+        if (activeTab === 'bank') {
+          const txs = await parseBankStatementWithGemini(extractedText, apiKey);
+          return { txs, slip: null };
+        } else {
+          const slip = await parseSalarySlipWithGemini(extractedText, apiKey);
+          return { txs: null, slip };
+        }
+      };
+
+      const runWithGroq = async () => {
+        if (!groqApiKey) throw new Error('No Groq API key configured. Please add one in Settings.');
+        if (activeTab === 'bank') {
+          const txs = await parseBankStatementWithGroq(extractedText, groqApiKey);
+          return { txs, slip: null };
+        } else {
+          const slip = await parseSalarySlipWithGroq(extractedText, groqApiKey);
+          return { txs: null, slip };
+        }
+      };
+
+      let result: { txs: Transaction[] | null; slip: SalarySlip | null };
+      let finalProvider: 'gemini' | 'groq' = 'gemini';
+
+      try {
+        result = await runWithGemini();
+        finalProvider = 'gemini';
+      } catch (geminiErr: any) {
+        if (isGeminiFallbackError(geminiErr) && groqApiKey) {
+          // Auto-fallback to Groq
+          setLoadingStep('Gemini limit reached — switching to Groq (Llama 3.3 70B)...');
+          console.warn('Gemini failed, falling back to Groq:', geminiErr.message);
+          result = await runWithGroq();
+          finalProvider = 'groq';
+        } else {
+          throw geminiErr; // Not a fallback-worthy error, surface it
+        }
       }
       
-      setSuccess('PDF successfully parsed! Please review the extracted data below.');
-      setPasswordRequired(false);
-      setPdfPassword(''); // Clear password on success
+      if (activeTab === 'bank' && result.txs) {
+        const mappedTxs = result.txs.map(t => ({ ...t, pdfName: file.name }));
+        setParsedTransactions(mappedTxs);
+      } else if (activeTab === 'salary' && result.slip) {
+        result.slip.pdfName = file.name;
+        setParsedSalarySlip(result.slip);
+      }
       
-      // Attempt to render the first page preview
+      const providerLabel = finalProvider === 'groq' ? 'Groq · Llama 3.3 70B' : 'Gemini 2.5 Flash';
+      setSuccess(`✅ PDF parsed via ${providerLabel}! Review and confirm the data below.`);
+      setPasswordRequired(false);
+      setPdfPassword('');
+      
+      // Render first page preview
       setTimeout(() => {
         if (canvasRef.current) {
           renderPdfPageToCanvas(file, 1, canvasRef.current, activePassword)

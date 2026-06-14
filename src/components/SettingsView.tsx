@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db, getSetting, setSetting } from '../db/database';
-import { Key, ShieldAlert, Database, Download, Upload, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Key, ShieldAlert, Database, Download, Upload, Trash2, CheckCircle2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
+  const [groqApiKey, setGroqApiKey] = useState('');
+  const [showGroqKey, setShowGroqKey] = useState(false);
   const [userName, setUserName] = useState('User');
   const [currency, setCurrency] = useState('INR');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -13,9 +15,11 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     async function loadSettings() {
       const savedKey = await getSetting('geminiApiKey', '');
+      const savedGroqKey = await getSetting('groqApiKey', '');
       const savedName = await getSetting('userName', 'User');
       const savedCurrency = await getSetting('currency', 'INR');
       setApiKey(savedKey);
+      setGroqApiKey(savedGroqKey);
       setUserName(savedName);
       setCurrency(savedCurrency);
     }
@@ -26,6 +30,7 @@ export const SettingsView: React.FC = () => {
     e.preventDefault();
     try {
       await setSetting('geminiApiKey', apiKey.trim());
+      await setSetting('groqApiKey', groqApiKey.trim());
       await setSetting('userName', userName.trim());
       await setSetting('currency', currency);
       
@@ -178,8 +183,23 @@ export const SettingsView: React.FC = () => {
               </select>
             </div>
 
+            {/* AI Provider Status Banner */}
+            <div className="provider-status-banner">
+              <div className="provider-badge primary-provider">
+                <Zap size={14} />
+                <span><strong>Primary:</strong> Gemini 2.5 Flash</span>
+              </div>
+              <div className="provider-arrow"><RefreshCw size={12} /></div>
+              <div className="provider-badge fallback-provider">
+                <span><strong>Fallback:</strong> Groq · Llama 3.3 70B</span>
+              </div>
+            </div>
+            <p className="field-hint banner-hint">
+              If Gemini hits a quota or billing limit, Kosha automatically retries with Groq — no action needed from you.
+            </p>
+
             <div className="form-group">
-              <label className="form-label" htmlFor="apikey">Google Gemini API Key</label>
+              <label className="form-label" htmlFor="apikey">🔑 Google Gemini API Key <span className="badge-primary">Primary</span></label>
               <div className="input-group-password">
                 <input
                   id="apikey"
@@ -187,7 +207,7 @@ export const SettingsView: React.FC = () => {
                   className="form-input password-input"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="AIzaSy..."
+                  placeholder="AQ.Ab8R..."
                 />
                 <button
                   type="button"
@@ -198,7 +218,31 @@ export const SettingsView: React.FC = () => {
                 </button>
               </div>
               <p className="field-hint">
-                Required for parsing PDFs. You can get a free developer key from the <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio</a>.
+                Get a free key from <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio</a>. Uses <strong>gemini-2.5-flash</strong>.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="groqapikey">🔑 Groq API Key <span className="badge-fallback">Fallback</span></label>
+              <div className="input-group-password">
+                <input
+                  id="groqapikey"
+                  type={showGroqKey ? 'text' : 'password'}
+                  className="form-input password-input"
+                  value={groqApiKey}
+                  onChange={(e) => setGroqApiKey(e.target.value)}
+                  placeholder="gsk_..."
+                />
+                <button
+                  type="button"
+                  className="btn-toggle-password"
+                  onClick={() => setShowGroqKey(!showGroqKey)}
+                >
+                  {showGroqKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <p className="field-hint">
+                Optional but recommended. Get a <strong>free</strong> key from <a href="https://console.groq.com/" target="_blank" rel="noreferrer">console.groq.com</a>. Uses <strong>llama-3.3-70b-versatile</strong>.
               </p>
             </div>
 
@@ -425,6 +469,71 @@ export const SettingsView: React.FC = () => {
         .btn-save {
           align-self: flex-start;
           margin-top: 8px;
+        }
+
+        .provider-status-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px 14px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid var(--border-glass);
+          border-radius: var(--border-radius-md);
+        }
+
+        .provider-badge {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-size: 0.8rem;
+          font-weight: 500;
+        }
+
+        .primary-provider {
+          background: var(--primary-glow);
+          color: var(--primary);
+          border: 1px solid rgba(99, 102, 241, 0.25);
+        }
+
+        .fallback-provider {
+          background: rgba(251, 146, 60, 0.1);
+          color: hsl(30, 95%, 65%);
+          border: 1px solid rgba(251, 146, 60, 0.2);
+        }
+
+        .provider-arrow {
+          color: var(--text-muted);
+          flex-shrink: 0;
+        }
+
+        .banner-hint {
+          margin-top: 0;
+        }
+
+        .badge-primary {
+          display: inline-block;
+          margin-left: 6px;
+          padding: 1px 7px;
+          border-radius: 10px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          background: var(--primary-glow);
+          color: var(--primary);
+          vertical-align: middle;
+        }
+
+        .badge-fallback {
+          display: inline-block;
+          margin-left: 6px;
+          padding: 1px 7px;
+          border-radius: 10px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          background: rgba(251, 146, 60, 0.1);
+          color: hsl(30, 95%, 65%);
+          vertical-align: middle;
         }
 
         .backup-actions {
