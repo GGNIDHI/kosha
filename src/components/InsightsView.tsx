@@ -4,6 +4,8 @@ import { db, getSetting } from '../db/database';
 import { computeHealthScore } from '../utils/healthScore';
 import { detectRecurring } from '../utils/recurringDetector';
 import { Sparkles, Loader2, RefreshCw, TrendingDown, TrendingUp, Shield, Clock } from 'lucide-react';
+import { isGeminiFallbackError } from '../services/gemini';
+import { generateInsightsWithGroq } from '../services/groq';
 
 const INSIGHT_SYSTEM_PROMPT = `You are Kosha — a friendly, concise personal financial advisor for India. 
 Analyse the provided financial data and give 5-7 SHORT, punchy, personalised insights.
@@ -21,10 +23,13 @@ interface Insight { type: 'positive' | 'warning' | 'tip' | 'alert'; title: strin
 
 export const InsightsView: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
+  const [groqApiKey, setGroqApiKey] = useState('');
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('Gemini is reading your financial data and crafting personalised insights…');
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [providerUsed, setProviderUsed] = useState<'gemini' | 'groq' | null>(null);
   const runningRef = useRef(false);
 
   const data = useLiveQuery(async () => {
@@ -39,10 +44,16 @@ export const InsightsView: React.FC = () => {
 
   useEffect(() => {
     getSetting('geminiApiKey', '').then(setApiKey);
+    getSetting('groqApiKey', '').then(setGroqApiKey);
     getSetting('cachedInsights', null as any).then((cached: any) => {
-      if (cached?.insights) { setInsights(cached.insights); setLastUpdated(cached.at); }
+      if (cached?.insights) {
+        setInsights(cached.insights);
+        setLastUpdated(cached.at);
+        setProviderUsed(cached.provider ?? 'gemini');
+      }
     });
   }, []);
+
 
   const buildContext = () => {
     const { transactions, budgets, salarySlips, investments, goals, debts } = data;
@@ -83,40 +94,76 @@ export const InsightsView: React.FC = () => {
   };
 
   const generate = async () => {
-    if (!apiKey) { setError('No Gemini API key found. Please add it in Settings.'); return; }
+    if (!apiKey && !groqApiKey) {
+      setError('No API key found. Please configure a Gemini or Groq API key in Settings.');
+      return;
+    }
     if (runningRef.current) return;
     runningRef.current = true;
     setLoading(true); setError(null);
 
     try {
       const context = buildContext();
-      const body = {
-        contents: [
-          { role: 'user', parts: [{ text: `${INSIGHT_SYSTEM_PROMPT}\n\nFinancial Data:\n${context}` }] }
-        ],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 1024 }
+      let resultText = '';
+      let provider: 'gemini' | 'groq' = 'gemini';
+
+      const runWithGemini = async () => {
+        const body = {
+          contents: [
+            { role: 'user', parts: [{ text: `${INSIGHT_SYSTEM_PROMPT}\n\nFinancial Data:\n${context}` }] }
+          ],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 1024 }
+        };
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        );
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error?.message || `API error ${res.status}`);
+        }
+
+        const json = await res.json();
+        return json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
       };
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-      );
+      const runWithGroq = async () => {
+        if (!groqApiKey) throw new Error('No Groq API key configured. Please add one in Settings.');
+        return await generateInsightsWithGroq(INSIGHT_SYSTEM_PROMPT, `Financial Data:\n${context}`, groqApiKey);
+      };
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || `API error ${res.status}`);
+      if (apiKey) {
+        try {
+          setLoadingText('Gemini is reading your financial data and crafting insights...');
+          resultText = await runWithGemini();
+          provider = 'gemini';
+        } catch (geminiErr: any) {
+          if (groqApiKey && isGeminiFallbackError(geminiErr)) {
+            setLoadingText('Gemini limit reached — switching to Groq (Llama 3.3 70B)...');
+            console.warn('Gemini failed, falling back to Groq:', geminiErr.message);
+            resultText = await runWithGroq();
+            provider = 'groq';
+          } else {
+            throw geminiErr;
+          }
+        }
+      } else {
+        setLoadingText('Groq is reading your financial data and crafting insights...');
+        resultText = await runWithGroq();
+        provider = 'groq';
       }
 
-      const json = await res.json();
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      const match = text.match(/\{[\s\S]*\}/);
+      const match = resultText.match(/\{[\s\S]*\}/);
       if (!match) throw new Error('Could not parse AI response');
       const parsed = JSON.parse(match[0]);
       const list: Insight[] = parsed.insights ?? [];
       const at = new Date().toLocaleString('en-IN');
       setInsights(list);
       setLastUpdated(at);
-      await db.settings.put({ key: 'cachedInsights', value: { insights: list, at } });
+      setProviderUsed(provider);
+      await db.settings.put({ key: 'cachedInsights', value: { insights: list, at, provider } });
     } catch (e: any) {
       setError(e.message ?? 'Unknown error');
     } finally {
@@ -130,7 +177,7 @@ export const InsightsView: React.FC = () => {
       <header className="view-header-row">
         <div>
           <h1>AI Financial Insights</h1>
-          <p>Gemini analyses your data and gives personalised, actionable advice.</p>
+          <p>AI analyses your data and gives personalised, actionable advice.</p>
         </div>
         <button className="btn btn-primary" onClick={generate} disabled={loading}>
           {loading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
@@ -141,6 +188,11 @@ export const InsightsView: React.FC = () => {
       {lastUpdated && (
         <div className="insights-last-updated">
           <RefreshCw size={13} /> Last updated: {lastUpdated}
+          {providerUsed && (
+            <span className="provider-tag">
+              via {providerUsed === 'groq' ? 'Groq (Llama 3.3)' : 'Gemini 2.5 Flash'}
+            </span>
+          )}
         </div>
       )}
 
@@ -153,7 +205,7 @@ export const InsightsView: React.FC = () => {
       {loading && (
         <div className="glass-card insights-loading-card">
           <Loader2 size={32} className="spin primary-color" />
-          <p>Gemini is reading your financial data and crafting personalised insights…</p>
+          <p>{loadingText}</p>
         </div>
       )}
 
@@ -161,7 +213,7 @@ export const InsightsView: React.FC = () => {
         <div className="glass-card empty-state">
           <Sparkles size={48} className="empty-icon" />
           <h3>No Insights Yet</h3>
-          <p>Click "Generate Insights" to let Gemini AI analyse your spending, savings, goals, and investments and give you personalised advice.</p>
+          <p>Click "Generate Insights" to let AI analyse your spending, savings, goals, and investments and give you personalised advice.</p>
         </div>
       )}
 
@@ -187,6 +239,15 @@ export const InsightsView: React.FC = () => {
         .insights-last-updated {
           display: flex; align-items: center; gap: 5px;
           font-size: 0.78rem; color: var(--text-muted); margin-top: -8px;
+        }
+        .provider-tag {
+          margin-left: 6px;
+          padding: 1px 6px;
+          border-radius: 4px;
+          background: rgba(255, 255, 255, 0.05);
+          font-size: 0.72rem;
+          color: var(--text-secondary);
+          border: 1px solid var(--border-glass);
         }
         .insights-loading-card {
           display: flex; flex-direction: column; align-items: center;

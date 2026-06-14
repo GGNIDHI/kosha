@@ -128,3 +128,39 @@ Rules:
     id: `slip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   };
 }
+
+/**
+ * Calls the Groq API to generate financial insights based on system and user prompts.
+ * Used as an automatic fallback when Gemini is unavailable.
+ */
+export async function generateInsightsWithGroq(
+  systemPrompt: string,
+  userPrompt: string,
+  apiKey: string
+): Promise<string> {
+  const response = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      temperature: 0.4,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`Groq API Error: ${err?.error?.message || 'API request failed'}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content || '';
+}
+
