@@ -385,6 +385,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
       </header>
 
+      {/* ── All Time Worth Banner (always all-time, not period-filtered) ──── */}
+      <div className="glass-card net-worth-banner">
+        <div className="banner-details">
+          <div className="details-header">
+            <PiggyBank size={24} className="banner-icon-piggy" />
+            <span>All Time Worth</span>
+            <span className="banner-alltime-tag">All Time</span>
+          </div>
+          <h2>{formatAmount(netWorth, currency)}</h2>
+          <p>Running total of all cash in &amp; out + current investment portfolio value</p>
+        </div>
+        <div className="banner-sub-stats">
+          <div className="sub-stat-item border-right-glass">
+            <div className="sub-label"><Wallet size={16} className="secondary-color" /><span>Liquid Cash</span></div>
+            <h4>{formatAmount(cashBalance, currency)}</h4>
+          </div>
+          <div className="sub-stat-item">
+            <div className="sub-label"><CircleDollarSign size={16} className="primary-color" /><span>Portfolio</span></div>
+            <h4>{formatAmount(portfolioValue, currency)}</h4>
+          </div>
+        </div>
+      </div>
+
       {/* ── Period Selector ──────────────────────────────────────────────── */}
       <div className="glass-card period-selector-card">
         <CalendarDays size={16} className="period-icon" />
@@ -437,28 +460,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <MeterGauge label="Investment Rate" subtitle="of income invested" value={investmentRate} displayValue={`${Math.round(investmentRate)}%`} thresholds={{ ok: 15, warn: 5 }} lowIsGood={false} helpText={investmentRate >= 15 ? 'Strong! Wealth is growing.' : investmentRate >= 5 ? 'Decent. Push to 15%.' : 'Low. Start a SIP.'} />
           <MeterGauge label="Budget Compliance" subtitle="categories in limit" value={budgetCompliancePct} displayValue={`${budgetCompliancePct}%`} thresholds={{ ok: 80, warn: 50 }} lowIsGood={false} helpText={budgets.length === 0 ? 'Set budgets to track.' : budgetCompliancePct === 100 ? 'Perfect! All budgets on track.' : budgetCompliancePct >= 80 ? 'A few categories over.' : 'Several budgets exceeded.'} />
           <MeterGauge label="Debt-to-Income" subtitle="of income on EMIs" value={dtiRate} displayValue={`${Math.round(dtiRate)}%`} thresholds={{ ok: 30, warn: 50 }} lowIsGood helpText={debts.length === 0 ? 'No active debts. Great!' : dtiRate <= 30 ? 'Healthy DTI.' : dtiRate <= 50 ? 'Moderate. Avoid new loans.' : 'High DTI. Prioritise payoff.'} />
-        </div>
-      </div>
-
-      {/* ── Net Worth Banner ─────────────────────────────────────────────── */}
-      <div className="glass-card net-worth-banner">
-        <div className="banner-details">
-          <div className="details-header">
-            <PiggyBank size={24} className="banner-icon-piggy" />
-            <span>Total Consolidated Net Worth</span>
-          </div>
-          <h2>{formatAmount(netWorth, currency)}</h2>
-          <p>Combined liquid cash balances and stock market investments (all-time)</p>
-        </div>
-        <div className="banner-sub-stats">
-          <div className="sub-stat-item border-right-glass">
-            <div className="sub-label"><Wallet size={16} className="secondary-color" /><span>Liquid Cash</span></div>
-            <h4>{formatAmount(cashBalance, currency)}</h4>
-          </div>
-          <div className="sub-stat-item">
-            <div className="sub-label"><CircleDollarSign size={16} className="primary-color" /><span>Portfolio</span></div>
-            <h4>{formatAmount(portfolioValue, currency)}</h4>
-          </div>
         </div>
       </div>
 
@@ -883,6 +884,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         }
         .banner-details { display: flex; flex-direction: column; gap: 6px; }
         .details-header { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); font-weight: 500; }
+        .banner-alltime-tag {
+          font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+          padding: 2px 8px; border-radius: 99px;
+          background: rgba(139,92,246,0.12); color: var(--primary);
+          border: 1px solid rgba(139,92,246,0.25);
+        }
         .banner-icon-piggy { color: var(--primary); }
         .banner-details h2 {
           font-family: var(--font-heading); font-size: 2.5rem; font-weight: 800;
