@@ -29,6 +29,21 @@ export function computeHealthScore(
 ): HealthScoreBreakdown {
   // Use the transactions as passed — caller is responsible for period filtering
   const periodTxs     = transactions;
+
+  // No data at all → return empty score so UI shows nothing meaningful
+  if (periodTxs.length === 0) {
+    return {
+      total: 0,
+      savingsRate:        { score: 0, max: 25, value: 0, label: 'No data' },
+      budgetAdherence:    { score: 0, max: 25, value: 0, label: 'No data' },
+      emergencyFund:      { score: 0, max: 20, value: 0, label: 'No data' },
+      investmentRate:     { score: 0, max: 20, value: 0, label: 'No data' },
+      subscriptionBurden: { score: 0, max: 10, value: 0, label: 'No data' },
+      grade: 'F',
+      colour: '#6b7280',
+    };
+  }
+
   const monthlyIncome   = periodTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
   const monthlyExpenses = periodTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
 

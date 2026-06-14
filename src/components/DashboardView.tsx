@@ -492,39 +492,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
       {/* ── Financial Health Score ────────────────────────────────────────── */}
       <div className="glass-card health-score-card">
-        <div className="hsc-left">
-          <div className="hsc-gauge-wrap">
-            <svg viewBox="0 0 120 70" className="hsc-gauge-svg">
-              <path d="M10,70 A60,60 0 0,1 110,70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" strokeLinecap="round"/>
-              <path d="M10,70 A60,60 0 0,1 110,70" fill="none" stroke={healthScore.colour} strokeWidth="10" strokeLinecap="round"
-                strokeDasharray={`${(healthScore.total/100)*157} 157`}
-                style={{ filter:`drop-shadow(0 0 6px ${healthScore.colour})` }} />
-              <text x="60" y="68" textAnchor="middle" fontSize="22" fontWeight="800" fill={healthScore.colour}>{healthScore.total}</text>
-            </svg>
+        {periodTxs.length === 0 ? (
+          <div className="hsc-empty">
+            <TrendingUp size={32} style={{ color: '#6b7280', opacity: 0.4 }} />
+            <p className="hsc-empty-title">No Data Yet</p>
+            <p className="hsc-empty-sub">Parse or add transactions to calculate your financial health score.</p>
           </div>
-          <div className="hsc-grade" style={{ color: healthScore.colour }}>{healthScore.grade}</div>
-          <p className="hsc-title">Financial Health</p>
-        </div>
-        <div className="hsc-components">
-          {([
-            { compLabel:'Savings Rate',     ...healthScore.savingsRate },
-            { compLabel:'Budget Adherence', ...healthScore.budgetAdherence },
-            { compLabel:'Emergency Fund',   ...healthScore.emergencyFund },
-            { compLabel:'Investment Rate',  ...healthScore.investmentRate },
-            { compLabel:'Subscriptions',    ...healthScore.subscriptionBurden },
-          ] as {compLabel:string;score:number;max:number;value:number;label:string}[]).map(c => (
-            <div key={c.compLabel} className="hsc-component-row">
-              <div className="hsc-comp-meta">
-                <span className="hsc-comp-label">{c.compLabel}</span>
-                <span className="hsc-comp-score">{c.score}/{c.max}</span>
+        ) : (
+          <>
+            <div className="hsc-left">
+              <div className="hsc-gauge-wrap">
+                <svg viewBox="0 0 120 70" className="hsc-gauge-svg">
+                  <path d="M10,70 A60,60 0 0,1 110,70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" strokeLinecap="round"/>
+                  <path d="M10,70 A60,60 0 0,1 110,70" fill="none" stroke={healthScore.colour} strokeWidth="10" strokeLinecap="round"
+                    strokeDasharray={`${(healthScore.total/100)*157} 157`}
+                    style={{ filter:`drop-shadow(0 0 6px ${healthScore.colour})` }} />
+                  <text x="60" y="68" textAnchor="middle" fontSize="22" fontWeight="800" fill={healthScore.colour}>{healthScore.total}</text>
+                </svg>
               </div>
-              <div className="hsc-comp-bar">
-                <div className="hsc-comp-fill" style={{ width:`${(c.score/c.max)*100}%`, background:healthScore.colour }} />
-              </div>
+              <div className="hsc-grade" style={{ color: healthScore.colour }}>{healthScore.grade}</div>
+              <p className="hsc-title">Financial Health</p>
             </div>
-          ))}
-        </div>
-        <div className="hsc-tip"><TrendingUp size={14} className="primary-color" /><span>{healthScore.savingsRate.label} • {healthScore.emergencyFund.label}</span></div>
+            <div className="hsc-components">
+              {([
+                { compLabel:'Savings Rate',     ...healthScore.savingsRate },
+                { compLabel:'Budget Adherence', ...healthScore.budgetAdherence },
+                { compLabel:'Emergency Fund',   ...healthScore.emergencyFund },
+                { compLabel:'Investment Rate',  ...healthScore.investmentRate },
+                { compLabel:'Subscriptions',    ...healthScore.subscriptionBurden },
+              ] as {compLabel:string;score:number;max:number;value:number;label:string}[]).map(c => (
+                <div key={c.compLabel} className="hsc-component-row">
+                  <div className="hsc-comp-meta">
+                    <span className="hsc-comp-label">{c.compLabel}</span>
+                    <span className="hsc-comp-score">{c.score}/{c.max}</span>
+                  </div>
+                  <div className="hsc-comp-bar">
+                    <div className="hsc-comp-fill" style={{ width:`${(c.score/c.max)*100}%`, background:healthScore.colour }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hsc-tip"><TrendingUp size={14} className="primary-color" /><span>{healthScore.savingsRate.label} • {healthScore.emergencyFund.label}</span></div>
+          </>
+        )}
       </div>
 
       {/* ── Charts Grid ───────────────────────────────────────────────────── */}
@@ -921,6 +931,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         .hsc-comp-bar { height: 5px; background: rgba(255,255,255,.05); border-radius: 99px; overflow: hidden; }
         .hsc-comp-fill { height: 100%; border-radius: 99px; transition: width .6s cubic-bezier(.4,0,.2,1); }
         .hsc-tip { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--text-muted); padding-top: 12px; border-top: 1px solid var(--border-glass); width: 100%; }
+        .hsc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 24px 0; }
+        .hsc-empty-title { font-size: 1rem; font-weight: 700; color: var(--text-muted); }
+        .hsc-empty-sub   { font-size: 0.8rem; color: var(--text-muted); opacity: 0.6; text-align: center; max-width: 280px; line-height: 1.5; }
 
         /* ── Charts Grid ── */
         .charts-dashboard-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
