@@ -79,19 +79,29 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Setup server active at http://localhost:${PORT}`);
-  
-  // Open setup wizard in browser automatically (standalone if Chrome is available)
+function launchStandalone(port) {
   if (process.platform === 'darwin') {
-    exec('open -a "Google Chrome" --args --app=http://localhost:' + PORT, (err) => {
-      if (err) exec('open http://localhost:' + PORT);
+    exec('osascript -e \'id of application "Google Chrome"\'', (err) => {
+      if (!err) {
+        exec(`open -a "Google Chrome" --args --app=http://localhost:${port}`);
+      } else {
+        exec(`open http://localhost:${port}`);
+      }
     });
   } else {
-    exec('start chrome --app=http://localhost:' + PORT, (err) => {
-      if (err) exec('start http://localhost:' + PORT);
+    exec('where chrome', (err) => {
+      if (!err) {
+        exec(`start chrome --app=http://localhost:${port}`);
+      } else {
+        exec(`start http://localhost:${port}`);
+      }
     });
   }
+}
+
+server.listen(PORT, () => {
+  console.log(`Setup server active at http://localhost:${PORT}`);
+  launchStandalone(PORT);
 });
 
 async function runInstallation(data) {
@@ -253,15 +263,7 @@ async function runInstallation(data) {
     
     // Auto-launch the dashboard in standalone window after Vite starts
     setTimeout(() => {
-      if (process.platform === 'darwin') {
-        exec(`open -a "Google Chrome" --args --app=http://localhost:${data.port}`, (err) => {
-          if (err) exec(`open http://localhost:${data.port}`);
-        });
-      } else {
-        exec(`start chrome --app=http://localhost:${data.port}`, (err) => {
-          if (err) exec(`start http://localhost:${data.port}`);
-        });
-      }
+      launchStandalone(data.port);
     }, 2000);
 
     progress.percent = 100;
