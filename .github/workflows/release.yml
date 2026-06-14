@@ -30,6 +30,10 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -42,7 +46,10 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Build App
+        run: npm run build
+
       - name: Build and Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run electron:build -- --publish always
+        run: npx electron-builder --publish always
