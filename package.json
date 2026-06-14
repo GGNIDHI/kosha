@@ -57,6 +57,12 @@
     },
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GGNIDHI",
+      "repo": "kosha",
+      "releaseType": "release"
     }
   }
 }
