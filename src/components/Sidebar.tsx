@@ -6,7 +6,6 @@ import {
   TrendingUp,
   Target,
   Settings as SettingsIcon,
-  PiggyBank,
   Trophy,
   CreditCard,
   Sparkles,
@@ -58,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     <aside className="sidebar-container">
       <div className="sidebar-brand">
         <div className="brand-logo">
-          <PiggyBank size={28} className="brand-icon" />
+          <img src="/logo.png" alt="Kosha" className="brand-logo-img" />
         </div>
         <div className="brand-info">
           <h2>Kosha</h2>
@@ -125,13 +124,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
         .brand-logo {
           width: 40px; height: 40px;
           border-radius: var(--border-radius-md);
-          background: radial-gradient(circle, var(--primary) 0%, hsl(263, 90%, 55%) 100%);
-          display: flex; align-items: center; justify-content: center;
-          box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+          overflow: hidden;
           flex-shrink: 0;
+          box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
         }
 
-        .brand-icon { color: var(--text-primary); }
+        .brand-logo-img {
+          width: 100%; height: 100%;
+          object-fit: cover;
+          border-radius: var(--border-radius-md);
+        }
 
         .brand-info h2 {
           font-size: 1.2rem; font-weight: 700; line-height: 1.1;
