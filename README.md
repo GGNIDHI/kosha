@@ -61,6 +61,15 @@ Open **http://localhost:5173**
 > Open the site in Chrome → click the **install icon** (⊕) in the address bar → done.  
 > On iPhone: Safari → Share → **Add to Home Screen**
 
+### 🖥️ macOS Native Launcher (With Auto-Start Server)
+If you are running locally on macOS, you can use the pre-compiled **Kosha Launcher** app included in the root of this repository:
+1. Drag **`Kosha Launcher.app`** into your **Applications** folder or onto your **Dock**.
+2. Double-click to open. It will automatically start the Vite server in the background (if it isn't already running) and open the dashboard in your default browser!
+3. *Note: Since the app bundle is cloned/downloaded from GitHub, macOS Gatekeeper may block it initially. To run it, right-click -> Open, or run this quick command in terminal to clear the quarantine flags:*
+   ```bash
+   xattr -cr "Kosha Launcher.app"
+   ```
+
 ---
 
 ## 🔑 API Keys (optional — for AI features only)
