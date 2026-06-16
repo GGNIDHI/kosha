@@ -741,6 +741,28 @@ export const InvestmentsView: React.FC = () => {
       )}
 
       <style>{`
+        .display-none {
+          display: none !important;
+        }
+
+        .btn-delete-action {
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 6px;
+          border-radius: 6px;
+          transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .btn-delete-action:hover {
+          color: var(--danger);
+          background: var(--danger-glow);
+        }
+
         /* Core View Layout and Scroll alignment */
         .view-container {
           flex: 1; 
