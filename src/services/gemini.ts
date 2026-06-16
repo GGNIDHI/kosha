@@ -47,7 +47,7 @@ function splitIntoChunks(text: string): string[] {
 /**
  * Calls Gemini once for a single chunk of statement text.
  */
-async function parseChunkWithGemini(
+export async function parseChunkWithGemini(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
@@ -206,9 +206,33 @@ ${text}
       taxDeducted:     { type: 'NUMBER',  description: 'TDS / Income Tax' },
       otherDeductions: { type: 'NUMBER',  description: 'Other deductions total' },
       grossPay:        { type: 'NUMBER',  description: 'Gross earnings' },
-      netPay:          { type: 'NUMBER',  description: 'Net take-home salary' }
+      netPay:          { type: 'NUMBER',  description: 'Net take-home salary' },
+      earningsBreakdown: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            name: { type: 'STRING', description: 'Name of the earning component (e.g. Basic, HRA, LTA, Bonus)' },
+            amount: { type: 'NUMBER', description: 'Amount for this component' }
+          },
+          required: ['name', 'amount']
+        },
+        description: 'Itemized list of all earning/allowance components found on the salary slip'
+      },
+      deductionsBreakdown: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            name: { type: 'STRING', description: 'Name of the deduction component (e.g. EPF, ESPP, TDS, Tax)' },
+            amount: { type: 'NUMBER', description: 'Amount for this component' }
+          },
+          required: ['name', 'amount']
+        },
+        description: 'Itemized list of all deduction components found on the salary slip'
+      }
     },
-    required: ['month', 'year', 'basicPay', 'hra', 'allowances', 'providentFund', 'taxDeducted', 'otherDeductions', 'grossPay', 'netPay']
+    required: ['month', 'year', 'basicPay', 'hra', 'allowances', 'providentFund', 'taxDeducted', 'otherDeductions', 'grossPay', 'netPay', 'earningsBreakdown', 'deductionsBreakdown']
   };
 
   const payload = {

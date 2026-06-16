@@ -37,6 +37,7 @@ export const CsvImportView: React.FC = () => {
     try {
       const txs = csvRowsToTransactions(rows, fileName);
       await db.transactions.bulkAdd(txs);
+      localStorage.setItem('kosha_show_smart_review_banner', 'true');
       setImported(txs.length);
       setRows([]); setErrors([]); setFileName('');
     } catch (e) {

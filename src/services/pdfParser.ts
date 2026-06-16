@@ -73,6 +73,55 @@ export async function extractTextFromPdf(file: File, password?: string): Promise
 }
 
 /**
+ * Extracts raw text page-by-page from an uploaded PDF file, returning an array of strings.
+ */
+export async function extractPagesFromPdf(file: File, password?: string): Promise<string[]> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjs.getDocument({ data: arrayBuffer, password });
+    const pdf = await loadingTask.promise;
+    
+    const pagesText: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      
+      let lastY = -1;
+      let pageText = '';
+      
+      for (const item of textContent.items) {
+        if ('str' in item) {
+          const str = item.str;
+          const transform = (item as any).transform;
+          const currentY = transform ? transform[5] : -1;
+          
+          if (lastY !== -1 && Math.abs(currentY - lastY) > 5) {
+            pageText += '\n';
+          }
+          
+          pageText += str + ' ';
+          lastY = currentY;
+        }
+      }
+      
+      pagesText.push(pageText.trim());
+    }
+    
+    return pagesText;
+  } catch (error: any) {
+    if (error && (error.name === 'PasswordException' || error.message?.includes('password'))) {
+      if (!password) {
+        throw new Error('PasswordRequired');
+      } else {
+        throw new Error('PasswordIncorrect');
+      }
+    }
+    console.error('Error parsing PDF:', error);
+    throw new Error('Failed to extract text from the PDF file.');
+  }
+}
+
+/**
  * Renders a PDF page to a canvas element for preview.
  */
 export async function renderPdfPageToCanvas(

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting, recordNetWorthSnapshot } from '../db/database';
-import type { Transaction } from '../db/database';
+import { db, getSetting, recordNetWorthSnapshot, autoRepairTransactionDates } from '../db/database';
+import type { Transaction, SalarySlip, Debt, Budget, SalarySlipMapping } from '../db/database';
 import { formatAmount } from '../utils/currency';
 import { detectRecurring } from '../utils/recurringDetector';
 import { computeHealthScore } from '../utils/healthScore';
 import { buildCashForecast } from '../utils/cashForecast';
+import { getReconciledPairs, getReconciledTransfers } from '../utils/reconciliation';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -161,10 +162,702 @@ const RecurringPopup: React.FC<RecurringPopupProps> = ({ description, allTransac
   );
 };
 
+interface MeterDetailModalProps {
+  type: 'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax';
+  onClose: () => void;
+  periodTxs: Transaction[];
+  transactions: Transaction[];
+  periodSlips: SalarySlip[];
+  reconciledTxIds: Set<string>;
+  currency: string;
+  debts: Debt[];
+  budgets: Budget[];
+  periodIncome: number;
+  periodExpenses: number;
+  periodSavings: number;
+  mappings: SalarySlipMapping[];
+}
+
+const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
+  type,
+  onClose,
+  periodTxs,
+  periodSlips,
+  reconciledTxIds,
+  currency,
+  debts,
+  budgets,
+  periodIncome,
+  periodExpenses,
+  periodSavings,
+  mappings,
+}) => {
+
+  const pfForPeriod = useMemo(() => {
+    return periodSlips.reduce((sum, slip) => sum + (slip.providentFund || 0), 0);
+  }, [periodSlips]);
+
+  const mappedInvestments = useMemo(() => {
+    let total = 0;
+    periodSlips.forEach(slip => {
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'investment') {
+          total += d.amount;
+        }
+      });
+    });
+    return total;
+  }, [periodSlips, mappings]);
+
+  const mappedSavings = useMemo(() => {
+    let total = 0;
+    periodSlips.forEach(slip => {
+      slip.earningsBreakdown?.forEach(e => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'earning') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = e.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'savings') {
+          total += e.amount;
+        }
+      });
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'savings') {
+          total += d.amount;
+        }
+      });
+    });
+    return total;
+  }, [periodSlips, mappings]);
+
+  const renderContent = () => {
+    switch (type) {
+      case 'expense': {
+        const categoriesMap: Record<string, number> = {};
+        const debitTxs = periodTxs.filter(tx => tx.type === 'debit');
+        debitTxs.forEach(tx => {
+          categoriesMap[tx.category] = (categoriesMap[tx.category] || 0) + tx.amount;
+        });
+        const categoriesBreakdown = Object.entries(categoriesMap).sort((a, b) => b[1] - a[1]);
+        const topExpenses = [...debitTxs].sort((a, b) => b.amount - a.amount).slice(0, 10);
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Expenses</span>
+                <span className="popup-stat-value text-danger">{formatAmount(periodExpenses, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Income</span>
+                <span className="popup-stat-value text-success">{formatAmount(periodIncome, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Expense Rate</span>
+                <span className="popup-stat-value">{periodIncome > 0 ? Math.round((periodExpenses / periodIncome) * 100) : 0}%</span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Equation Formula</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                (Total Expenses / Total Income) × 100 = Expense Rate
+              </span>
+              <span className="formula-values">
+                ({formatAmount(periodExpenses, currency)} / {formatAmount(periodIncome, currency)}) × 100 = {periodIncome > 0 ? Math.round((periodExpenses / periodIncome) * 100) : 0}%
+              </span>
+            </div>
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">Spend by Category</div>
+                <div className="breakdown-list">
+                  {categoriesBreakdown.length === 0 ? (
+                    <p className="no-data-text">No expenses recorded for this period.</p>
+                  ) : (
+                    categoriesBreakdown.map(([cat, amt]) => (
+                      <div key={cat} className="breakdown-item">
+                        <span className="breakdown-name">{cat}</span>
+                        <span className="breakdown-value">{formatAmount(amt, currency)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">Top Expenses</div>
+                <div className="popup-table-wrap" style={{ maxHeight: '200px' }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Date</th><th>Category</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {topExpenses.map((tx, idx) => (
+                        <tr key={idx}>
+                          <td>{tx.date}</td>
+                          <td><span className="cat-tag">{tx.category}</span></td>
+                          <td className="amt-cell debit-color">−{formatAmount(tx.amount, currency)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      case 'savings': {
+        const allCredits = periodTxs.filter(tx => tx.type === 'credit');
+        const creditsSorted = [...allCredits].sort((a, b) => b.date.localeCompare(a.date));
+
+        const totalSavingsSum = periodSavings + mappedSavings;
+
+        // Find individual mapped savings items to list them
+        const mappedSavingsItems: { name: string; amount: number; type: 'earning' | 'deduction' }[] = [];
+        periodSlips.forEach(slip => {
+          slip.earningsBreakdown?.forEach(e => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'earning') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = e.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'savings') {
+              mappedSavingsItems.push({ name: e.name, amount: e.amount, type: 'earning' });
+            }
+          });
+          slip.deductionsBreakdown?.forEach(d => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'deduction') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = d.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'savings') {
+              mappedSavingsItems.push({ name: d.name, amount: d.amount, type: 'deduction' });
+            }
+          });
+        });
+
+        // Check if there are slips parsed under older schema
+        const hasOldSlips = periodSlips.length > 0 && periodSlips.some(s => !s.deductionsBreakdown || !s.earningsBreakdown);
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Income</span>
+                <span className="popup-stat-value text-success">{formatAmount(periodIncome, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Expenses</span>
+                <span className="popup-stat-value text-danger">{formatAmount(periodExpenses, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Savings</span>
+                <span className="popup-stat-value" style={{ color: totalSavingsSum >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                  {formatAmount(totalSavingsSum, currency)}
+                </span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Equation Formula</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                ((Net Savings + Mapped Savings) / Total Income) × 100 = Savings Rate
+              </span>
+              <span className="formula-values">
+                (({formatAmount(periodSavings, currency)} + {formatAmount(mappedSavings, currency)}) / {formatAmount(periodIncome, currency)}) × 100 = {periodIncome > 0 ? Math.round((totalSavingsSum / periodIncome) * 100) : 0}%
+              </span>
+            </div>
+
+            {hasOldSlips && (
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#f97316', background: 'rgba(249,115,22,0.06)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(249,115,22,0.15)' }}>
+                💡 Note: Some salary slips in this period were parsed under an older version. Delete and re-upload them in the PDF Analyzer page to apply component mappings.
+              </p>
+            )}
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">Mapped Salary Savings</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {mappedSavingsItems.length === 0 ? (
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No salary slip components mapped to Savings. Configure mappings in Categories.</span>
+                  ) : (
+                    <div className="breakdown-list">
+                      {mappedSavingsItems.map((item, idx) => (
+                        <div key={idx} className="breakdown-item" style={{ padding: '8px 12px' }}>
+                          <span className="breakdown-name">
+                            {item.name}{' '}
+                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                              ({item.type === 'earning' ? 'Earning' : 'Deduction'} mapped)
+                            </span>
+                          </span>
+                          <span className="breakdown-value text-success">+{formatAmount(item.amount, currency)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">Income Credits Breakdown</div>
+                <p className="no-data-text" style={{ marginBottom: '8px', fontSize: '0.74rem', padding: 0, textAlign: 'left', color: 'var(--text-muted)' }}>
+                  💡 Struck-out entries represent duplicate bank credits reconciled and excluded to avoid double-counting.
+                </p>
+                <div className="popup-table-wrap" style={{ maxHeight: '200px', marginTop: 0 }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {creditsSorted.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: 'center' }}>No bank credits for this period.</td></tr>
+                      ) : (
+                        creditsSorted.map((tx, idx) => {
+                          const isReconciled = reconciledTxIds.has(tx.id!);
+                          return (
+                            <tr key={idx} style={isReconciled ? { opacity: 0.4 } : undefined}>
+                              <td style={isReconciled ? { textDecoration: 'line-through' } : undefined}>{tx.date}</td>
+                              <td style={isReconciled ? { textDecoration: 'line-through' } : undefined} className="truncate" title={tx.description}>
+                                {tx.description}
+                              </td>
+                              <td className="amt-cell text-success" style={isReconciled ? { textDecoration: 'line-through' } : undefined}>
+                                +{formatAmount(tx.amount, currency)}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      case 'investment': {
+        const investTxs = periodTxs.filter(tx => tx.type === 'debit' && tx.category === 'Investment');
+        const totalInvestedTxs = investTxs.reduce((s, tx) => s + tx.amount, 0);
+        const totalInvestedSum = totalInvestedTxs + pfForPeriod + mappedInvestments;
+
+        // Find individual mapped deductions to list them
+        const mappedDeductionItems: { name: string; amount: number }[] = [];
+        periodSlips.forEach(slip => {
+          slip.deductionsBreakdown?.forEach(d => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'deduction') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = d.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'investment') {
+              mappedDeductionItems.push({ name: d.name, amount: d.amount });
+            }
+          });
+        });
+
+        // Check if there are slips parsed under older schema
+        const hasOldSlips = periodSlips.length > 0 && periodSlips.some(s => !s.deductionsBreakdown || !s.earningsBreakdown);
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Ledger Investments</span>
+                <span className="popup-stat-value text-primary">{formatAmount(totalInvestedTxs, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">EPF & Mapped Deductions</span>
+                <span className="popup-stat-value" style={{ color: 'var(--secondary)' }}>{formatAmount(pfForPeriod + mappedInvestments, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Invested</span>
+                <span className="popup-stat-value text-success">{formatAmount(totalInvestedSum, currency)}</span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Equation Formula</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                ((Ledger Investments + EPF + Mapped Deductions) / Total Income) × 100 = Investment Rate
+              </span>
+              <span className="formula-values">
+                (({formatAmount(totalInvestedTxs, currency)} + {formatAmount(pfForPeriod + mappedInvestments, currency)}) / {formatAmount(periodIncome, currency)}) × 100 = {periodIncome > 0 ? Math.round((totalInvestedSum / periodIncome) * 100) : 0}%
+              </span>
+            </div>
+
+            {hasOldSlips && (
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#f97316', background: 'rgba(249,115,22,0.06)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(249,115,22,0.15)' }}>
+                💡 Note: Some salary slips in this period were parsed under an older version. Delete and re-upload them in the PDF Analyzer page to apply component mappings.
+              </p>
+            )}
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">EPF & Mapped Deductions (from Slips)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div className="formula-card" style={{ padding: '12px 16px', background: 'rgba(6,182,212,0.04)', borderColor: 'rgba(6,182,212,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>EPF Contribution</span>
+                      <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--secondary)' }}>{formatAmount(pfForPeriod, currency)}</span>
+                    </div>
+                  </div>
+
+                  {mappedDeductionItems.length > 0 && (
+                    <div className="breakdown-list">
+                      {mappedDeductionItems.map((item, idx) => (
+                        <div key={idx} className="breakdown-item" style={{ padding: '8px 12px' }}>
+                          <span className="breakdown-name">{item.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>(Mapped)</span></span>
+                          <span className="breakdown-value text-success">+{formatAmount(item.amount, currency)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {periodSlips.length === 0 && (
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No salary slips uploaded for this period.</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">Ledger Investment Transactions</div>
+                <div className="popup-table-wrap" style={{ maxHeight: '200px', marginTop: 0 }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {investTxs.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: 'center' }}>No investment debits in ledger.</td></tr>
+                      ) : (
+                        investTxs.map((tx, idx) => (
+                          <tr key={idx}>
+                            <td>{tx.date}</td>
+                            <td className="truncate" title={tx.description}>{tx.description}</td>
+                            <td className="amt-cell text-primary">{formatAmount(tx.amount, currency)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      case 'budget': {
+        const budgetData = budgets.map(b => {
+          const spent = periodTxs.filter(tx => tx.type === 'debit' && tx.category === b.category).reduce((s, tx) => s + tx.amount, 0);
+          const percent = b.monthlyLimit > 0 ? (spent / b.monthlyLimit) * 100 : 0;
+          return { ...b, spent, percent };
+        });
+
+        const activeBudgetsCount = budgets.length;
+        const metBudgetsCount = budgetData.filter(b => b.spent <= b.monthlyLimit).length;
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Budgets</span>
+                <span className="popup-stat-value">{activeBudgetsCount}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Budgets Met</span>
+                <span className="popup-stat-value text-success">{metBudgetsCount}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Compliance Rate</span>
+                <span className="popup-stat-value text-primary">
+                  {activeBudgetsCount > 0 ? Math.round((metBudgetsCount / activeBudgetsCount) * 100) : 100}%
+                </span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Category Budgets Overview</div>
+            <div className="popup-table-wrap" style={{ maxHeight: '280px' }}>
+              <table className="popup-table">
+                <thead>
+                  <tr><th>Category</th><th>Spend Progress</th><th>Limit</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {budgetData.length === 0 ? (
+                    <tr><td colSpan={4} style={{ textAlign: 'center' }}>No budgets set. Navigate to Budgets to configure limits.</td></tr>
+                  ) : (
+                    budgetData.map((b, idx) => {
+                      const isOver = b.spent > b.monthlyLimit;
+                      return (
+                        <tr key={idx}>
+                          <td><strong>{b.category}</strong></td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                                {formatAmount(b.spent, currency)} spent
+                              </span>
+                              <div style={{ width: '100%', background: 'rgba(255,255,255,0.05)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${Math.min(100, b.percent)}%`,
+                                  background: isOver ? 'var(--danger)' : 'var(--success)',
+                                  height: '100%'
+                                }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td>{formatAmount(b.monthlyLimit, currency)}</td>
+                          <td>
+                            {isOver ? (
+                              <span className="cat-tag" style={{ background: 'var(--danger-glow)', color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.3)' }}>Over Budget</span>
+                            ) : (
+                              <span className="cat-tag" style={{ background: 'var(--success-glow)', color: 'var(--success)', borderColor: 'rgba(34,197,94,0.3)' }}>On Track</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        );
+      }
+
+      case 'debt': {
+        const totalEmiSum = debts.reduce((s, d) => s + d.emiAmount, 0);
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Monthly EMIs</span>
+                <span className="popup-stat-value text-danger">{formatAmount(totalEmiSum, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Monthly Income</span>
+                <span className="popup-stat-value text-success">{formatAmount(periodIncome, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Debt-to-Income (DTI)</span>
+                <span className="popup-stat-value text-primary">
+                  {periodIncome > 0 ? Math.round((totalEmiSum / periodIncome) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Equation Formula</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                (Total Monthly EMIs / Total Income) × 100 = Debt-to-Income Ratio
+              </span>
+              <span className="formula-values">
+                ({formatAmount(totalEmiSum, currency)} / {formatAmount(periodIncome, currency)}) × 100 = {periodIncome > 0 ? Math.round((totalEmiSum / periodIncome) * 100) : 0}%
+              </span>
+            </div>
+
+            <div className="modal-section-title">EMI & Debt Breakdown</div>
+            <div className="popup-table-wrap" style={{ maxHeight: '240px' }}>
+              <table className="popup-table">
+                <thead>
+                  <tr><th>EMI Name</th><th>Loan Type</th><th>Interest Rate</th><th>EMI Amount</th></tr>
+                </thead>
+                <tbody>
+                  {debts.length === 0 ? (
+                    <tr><td colSpan={4} style={{ textAlign: 'center' }}>No active debts or EMIs found.</td></tr>
+                  ) : (
+                    debts.map((d, idx) => (
+                      <tr key={idx}>
+                        <td><strong>{d.name}</strong></td>
+                        <td><span className="cat-tag">{d.type.replace('_', ' ')}</span></td>
+                        <td>{d.interestRate}%</td>
+                        <td className="amt-cell text-danger">{formatAmount(d.emiAmount, currency)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        );
+      }
+      case 'tax': {
+        const periodTaxDeducted = periodSlips.reduce((sum, slip) => sum + (slip.taxDeducted || 0), 0);
+        let mappedTaxes = 0;
+        periodSlips.forEach(slip => {
+          slip.deductionsBreakdown?.forEach(d => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'deduction') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = d.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'tax') {
+              mappedTaxes += d.amount;
+            }
+          });
+          slip.earningsBreakdown?.forEach(e => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'earning') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = e.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'tax') {
+              mappedTaxes += e.amount;
+            }
+          });
+        });
+
+        const periodLedgerTaxes = periodTxs
+          .filter(tx => tx.type === 'debit' && tx.category.toLowerCase() === 'tax')
+          .reduce((sum, tx) => sum + tx.amount, 0);
+
+        const totalTaxPaid = periodTaxDeducted + mappedTaxes + periodLedgerTaxes;
+        const taxRate = periodIncome > 0 ? (totalTaxPaid / periodIncome) * 100 : 0;
+
+        // Group ledger taxes by description
+        const taxLedgerBreakdown: Record<string, number> = {};
+        const taxLedgerTxs = periodTxs.filter(tx => tx.type === 'debit' && tx.category.toLowerCase() === 'tax');
+        taxLedgerTxs.forEach(tx => {
+          taxLedgerBreakdown[tx.description] = (taxLedgerBreakdown[tx.description] || 0) + tx.amount;
+        });
+        const groupedTaxLedger = Object.entries(taxLedgerBreakdown).sort((a, b) => b[1] - a[1]);
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Tax Paid</span>
+                <span className="popup-stat-value text-danger">{formatAmount(totalTaxPaid, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Income</span>
+                <span className="popup-stat-value text-success">{formatAmount(periodIncome, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Tax Rate</span>
+                <span className="popup-stat-value">{Math.round(taxRate)}%</span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Equation Formula</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                (Salary TDS + Mapped Deductions + Ledger Taxes) / Total Income × 100 = Tax Rate
+              </span>
+              <span className="formula-values">
+                ({formatAmount(periodTaxDeducted, currency)} + {formatAmount(mappedTaxes, currency)} + {formatAmount(periodLedgerTaxes, currency)}) / {formatAmount(periodIncome, currency)} × 100 = {taxRate.toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">Tax Breakdown</div>
+                <div className="breakdown-list">
+                  <div className="breakdown-item">
+                    <span className="breakdown-name">Salary Slip TDS (Income Tax)</span>
+                    <span className="breakdown-value">{formatAmount(periodTaxDeducted, currency)}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-name">Mapped Deductions (e.g. Professional Tax)</span>
+                    <span className="breakdown-value">{formatAmount(mappedTaxes, currency)}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-name">Ledger Payments (Advance Tax, GST, etc.)</span>
+                    <span className="breakdown-value">{formatAmount(periodLedgerTaxes, currency)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">Ledger Tax Payments</div>
+                <div className="breakdown-list" style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                  {groupedTaxLedger.length === 0 ? (
+                    <p className="no-data-text">No ledger tax transactions in this period.</p>
+                  ) : (
+                    groupedTaxLedger.map(([desc, amt]) => (
+                      <div key={desc} className="breakdown-item">
+                        <span className="breakdown-name" style={{ fontSize: '0.82rem' }}>{desc}</span>
+                        <span className="breakdown-value">{formatAmount(amt, currency)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+      default:
+        return null;
+    }
+  };
+
+  const titles = {
+    expense: 'Expense Rate Detail Analysis',
+    savings: 'Savings Rate Detail Analysis',
+    investment: 'Investment Rate Detail Analysis',
+    budget: 'Budget Compliance Detail Analysis',
+    debt: 'Debt-to-Income Detail Analysis',
+    tax: 'Tax Rate Detail Analysis'
+  };
+
+  const subtitles = {
+    expense: 'Itemized details of outflows and expenditures against total income',
+    savings: 'Inflows and net savings profile for the selected period',
+    investment: 'Summary of ledger investments and EPF deductions',
+    budget: 'Breakdown of set limits vs actual category expenditures',
+    debt: 'EMIs and monthly financial obligations compared to inflows',
+    tax: 'Aggregate details of salary TDS and general tax transactions against income'
+  };
+
+  return (
+    <div className="popup-overlay" onClick={onClose}>
+      <div className="popup-modal" style={{ maxWidth: '720px' }} onClick={e => e.stopPropagation()}>
+        <div className="popup-header">
+          <div>
+            <h3 className="popup-title">{titles[type]}</h3>
+            <p className="popup-subtitle">{subtitles[type]}</p>
+          </div>
+          <button className="popup-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Main Dashboard ──────────────────────────────────────────────────────────
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [currency, setCurrency] = useState('INR');
   const [recurringPopup, setRecurringPopup] = useState<string | null>(null);
+  const [activeMeterDetail, setActiveMeterDetail] = useState<'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | null>(null);
+  const [mappings, setMappings] = useState<SalarySlipMapping[]>([]);
 
   // ── Period Selector State ─────────────────────────────────────────────────
   const [selYear,  setSelYear]  = useState<string>('all');   // 'all' | '2025' | '2026'
@@ -173,7 +866,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const hasAutoSelected = React.useRef(false);
 
   useEffect(() => {
+    autoRepairTransactionDates().then(repairedCount => {
+      if (repairedCount > 0) {
+        console.warn(`Auto-repaired ${repairedCount} transaction dates on dashboard mount.`);
+      }
+    }).catch(err => console.error("Auto date repair failed:", err));
     getSetting('currency', 'INR').then(setCurrency);
+    getSetting<SalarySlipMapping[]>('salarySlipMappings', []).then(setMappings);
   }, []);
 
   const raw = useLiveQuery(async () => {
@@ -183,10 +882,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     const budgets         = await db.budgets.toArray();
     const debts           = await db.debts.toArray();
     const netWorthHistory = await db.netWorthSnapshots.orderBy('date').toArray();
-    return { transactions, investments, salarySlips, budgets, debts, netWorthHistory };
-  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], debts: [], netWorthHistory: [] };
+    const decisions       = await db.reconDecisions.toArray();
+    return { transactions, investments, salarySlips, budgets, debts, netWorthHistory, decisions };
+  }, []) || { transactions: [], investments: [], salarySlips: [], budgets: [], debts: [], netWorthHistory: [], decisions: [] };
 
-  const { transactions, investments, salarySlips, budgets, debts, netWorthHistory } = raw;
+  const { transactions, investments, salarySlips, budgets, debts, netWorthHistory, decisions } = raw;
+
+  const reconciledPairs = useMemo(() => {
+    return getReconciledPairs(transactions, salarySlips, decisions || []);
+  }, [transactions, salarySlips, decisions]);
+
+  const reconciledTxIds = useMemo(() => {
+    const ids = new Set<string>();
+    reconciledPairs.forEach(p => {
+      if (p.status === 'accepted') {
+        ids.add(p.transaction.id!);
+      }
+    });
+    return ids;
+  }, [reconciledPairs]);
+
+  const reconciledTransfers = useMemo(() => {
+    return getReconciledTransfers(transactions, decisions || []);
+  }, [transactions, decisions]);
+
+  const transferTxIds = useMemo(() => {
+    const ids = new Set<string>();
+    reconciledTransfers.forEach(p => {
+      if (p.status === 'accepted') {
+        ids.add(p.bankTx.id!);
+        ids.add(p.cardTx.id!);
+      }
+    });
+    return ids;
+  }, [reconciledTransfers]);
+
+  const [showBanner, setShowBanner] = useState<boolean>(false);
+
+  useEffect(() => {
+    const bannerFlag = localStorage.getItem('kosha_show_smart_review_banner') === 'true';
+    if (bannerFlag && (reconciledPairs.length > 0 || reconciledTransfers.length > 0)) {
+      setShowBanner(true);
+    } else {
+      setShowBanner(false);
+    }
+  }, [reconciledPairs, reconciledTransfers]);
 
   // ── Auto-select most recent month with data on first load ─────────────────
   useEffect(() => {
@@ -236,24 +976,114 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   }, [selYear, selMonth, selWeek]);
 
   // ── Aggregates (all-time for net worth) ───────────────────────────────────
-  const cashBalance    = transactions.reduce((s, tx) => tx.type === 'credit' ? s + tx.amount : s - tx.amount, 0);
+  const cashBalance = transactions.reduce((s, tx) => {
+    if (tx.type === 'credit') {
+      return reconciledTxIds.has(tx.id!) ? s : s + tx.amount;
+    } else {
+      return s - tx.amount;
+    }
+  }, 0);
   const portfolioValue = investments.reduce((s, inv) => s + inv.quantity * (inv.currentPrice || inv.avgCost), 0);
-  const netWorth       = cashBalance + portfolioValue;
+
+  const allTimeSalaryInvestments = useMemo(() => {
+    let total = 0;
+    salarySlips.forEach(slip => {
+      total += (slip.providentFund || 0);
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'investment') {
+          total += d.amount;
+        }
+      });
+    });
+    return total;
+  }, [salarySlips, mappings]);
+
+  const netWorth       = cashBalance + portfolioValue + allTimeSalaryInvestments;
 
   // ── Period metrics ────────────────────────────────────────────────────────
-  const periodIncome   = periodTxs.filter(tx => tx.type === 'credit').reduce((s,tx) => s+tx.amount, 0);
-  const periodExpenses = periodTxs.filter(tx => tx.type === 'debit').reduce((s,tx) => s+tx.amount, 0);
+  const periodIncome   = periodTxs.filter(tx => tx.type === 'credit' && !reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)).reduce((s,tx) => s+tx.amount, 0);
+  const periodExpenses = periodTxs.filter(tx => tx.type === 'debit' && !transferTxIds.has(tx.id!)).reduce((s,tx) => s+tx.amount, 0);
   const periodSavings  = periodIncome - periodExpenses;
-  const savingsRate    = periodIncome > 0 ? (periodSavings / periodIncome) * 100 : 0;
+
+  // Filter salary slips for the selected period
+  const periodSlips = useMemo(() => {
+    return salarySlips.filter(slip => {
+      if (selYear !== 'all' && String(slip.year) !== selYear) return false;
+      if (selMonth !== 'all' && String(slip.month).padStart(2, '0') !== selMonth) return false;
+      return true;
+    });
+  }, [salarySlips, selYear, selMonth]);
+
+  // Sum PF over the period slips
+  const pfForPeriod = useMemo(() => {
+    return periodSlips.reduce((sum, slip) => sum + (slip.providentFund || 0), 0);
+  }, [periodSlips]);
+
+  // Custom salary mappings sums
+  const mappedInvestments = useMemo(() => {
+    let total = 0;
+    periodSlips.forEach(slip => {
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'investment') {
+          total += d.amount;
+        }
+      });
+    });
+    return total;
+  }, [periodSlips, mappings]);
+
+  const mappedSavings = useMemo(() => {
+    let total = 0;
+    periodSlips.forEach(slip => {
+      slip.earningsBreakdown?.forEach(e => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'earning') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = e.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'savings') {
+          total += e.amount;
+        }
+      });
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'savings') {
+          total += d.amount;
+        }
+      });
+    });
+    return total;
+  }, [periodSlips, mappings]);
 
   // ── Meter computations ────────────────────────────────────────────────────
-  const expenseRate = periodIncome > 0 ? Math.min(100, (periodExpenses / periodIncome) * 100) : 0;
+  const rawSavingsRate = periodIncome > 0 ? ((periodSavings + mappedSavings) / periodIncome) * 100 : 0;
+  const savingsRate = isNaN(rawSavingsRate) ? 0 : rawSavingsRate;
   const savingsRateClamped = Math.min(100, Math.max(0, savingsRate));
 
-  const latestSlip = [...salarySlips].sort((a,b) => b.year !== a.year ? b.year-a.year : b.month-a.month)[0];
-  const pfForPeriod = latestSlip?.providentFund ?? 0;
+  const rawExpenseRate = periodIncome > 0 ? (periodExpenses / periodIncome) * 100 : 0;
+  const expenseRate = isNaN(rawExpenseRate) ? 0 : Math.min(100, Math.max(0, rawExpenseRate));
+
   const periodInvestmentDebits = periodTxs.filter(tx => tx.type==='debit' && tx.category==='Investment').reduce((s,tx)=>s+tx.amount,0);
-  const investmentRate = periodIncome > 0 ? Math.min(100, ((periodInvestmentDebits + pfForPeriod) / periodIncome) * 100) : 0;
+  const rawInvestmentRate = periodIncome > 0 ? ((periodInvestmentDebits + pfForPeriod + mappedInvestments) / periodIncome) * 100 : 0;
+  const investmentRate = isNaN(rawInvestmentRate) ? 0 : Math.min(100, Math.max(0, rawInvestmentRate));
 
   const budgetCompliancePct = budgets.length > 0
     ? Math.round((budgets.filter(b => {
@@ -263,16 +1093,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     : 100;
 
   const totalMonthlyEmi = debts.reduce((s,d) => s+d.emiAmount, 0);
-  const dtiRate = periodIncome > 0 ? Math.min(100, (totalMonthlyEmi / periodIncome) * 100) : 0;
+  const rawDtiRate = periodIncome > 0 ? (totalMonthlyEmi / periodIncome) * 100 : 0;
+  const dtiRate = isNaN(rawDtiRate) ? 0 : Math.min(100, Math.max(0, rawDtiRate));
+
+  // Tax calculations
+  const periodTaxDeducted = useMemo(() => {
+    return periodSlips.reduce((sum, slip) => sum + (slip.taxDeducted || 0), 0);
+  }, [periodSlips]);
+
+  const mappedTaxes = useMemo(() => {
+    let total = 0;
+    periodSlips.forEach(slip => {
+      slip.deductionsBreakdown?.forEach(d => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'deduction') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = d.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'tax') {
+          total += d.amount;
+        }
+      });
+      slip.earningsBreakdown?.forEach(e => {
+        const match = mappings.find(m => {
+          if (m.componentType !== 'earning') return false;
+          const mapName = m.componentName.trim().toLowerCase();
+          const slipName = e.name.trim().toLowerCase();
+          return slipName.includes(mapName) || mapName.includes(slipName);
+        });
+        if (match && match.targetCategory === 'tax') {
+          total += e.amount;
+        }
+      });
+    });
+    return total;
+  }, [periodSlips, mappings]);
+
+  const periodLedgerTaxes = useMemo(() => {
+    return periodTxs
+      .filter(tx => tx.type === 'debit' && tx.category.toLowerCase() === 'tax')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+  }, [periodTxs]);
+
+  const totalTaxPaid = periodTaxDeducted + mappedTaxes + periodLedgerTaxes;
+  const rawTaxRate = periodIncome > 0 ? (totalTaxPaid / periodIncome) * 100 : 0;
+  const taxRate = isNaN(rawTaxRate) ? 0 : Math.min(100, Math.max(0, rawTaxRate));
 
   // ── Category Chart ────────────────────────────────────────────────────────
   const categoryChartData = useMemo(() => {
     const totals: Record<string, number> = {};
-    periodTxs.filter(tx => tx.type === 'debit').forEach(tx => {
+    periodTxs.filter(tx => tx.type === 'debit' && !transferTxIds.has(tx.id!)).forEach(tx => {
       totals[tx.category] = (totals[tx.category] || 0) + tx.amount;
     });
     return Object.entries(totals).map(([name, value]) => ({ name, value: Math.round(value) })).sort((a,b) => b.value-a.value);
-  }, [periodTxs]);
+  }, [periodTxs, transferTxIds]);
 
   // ── Financial Trend Chart data ────────────────────────────────────────────
   const trendChartData = useMemo(() => {
@@ -292,8 +1167,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       }
       periodTxs.forEach(tx => {
         if (!days[tx.date]) return;
-        if (tx.type==='credit') days[tx.date].income += tx.amount;
-        else { days[tx.date].expenses += tx.amount; if(tx.category==='Investment') days[tx.date].investments += tx.amount; }
+        if (tx.type==='credit') {
+          if (!reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)) {
+            days[tx.date].income += tx.amount;
+          }
+        }
+        else {
+          if (!transferTxIds.has(tx.id!)) {
+            days[tx.date].expenses += tx.amount;
+            if(tx.category==='Investment') days[tx.date].investments += tx.amount;
+          }
+        }
       });
       return Object.values(days).map(d => ({ ...d, savings: d.income - d.expenses }));
     }
@@ -302,9 +1186,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     if (selYear !== 'all' && selMonth !== 'all') {
       return weekBuckets.map(b => {
         const bTxs = transactions.filter(tx => tx.date >= b.start && tx.date <= b.end);
-        const inc = bTxs.filter(tx=>tx.type==='credit').reduce((s,tx)=>s+tx.amount,0);
-        const exp = bTxs.filter(tx=>tx.type==='debit').reduce((s,tx)=>s+tx.amount,0);
-        const inv = bTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment').reduce((s,tx)=>s+tx.amount,0);
+        const inc = bTxs.filter(tx=>tx.type==='credit' && !reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+        const exp = bTxs.filter(tx=>tx.type==='debit' && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+        const inv = bTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment'&&!transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
         return { label: b.label, income:inc, expenses:exp, savings:inc-exp, investments:inv };
       });
     }
@@ -314,9 +1198,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       return Array.from({length:12},(_,i)=>i+1).map(m => {
         const key = `${selYear}-${pad(m)}`;
         const mTxs = transactions.filter(tx => tx.date.startsWith(key));
-        const inc = mTxs.filter(tx=>tx.type==='credit').reduce((s,tx)=>s+tx.amount,0);
-        const exp = mTxs.filter(tx=>tx.type==='debit').reduce((s,tx)=>s+tx.amount,0);
-        const inv = mTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment').reduce((s,tx)=>s+tx.amount,0);
+        const inc = mTxs.filter(tx=>tx.type==='credit' && !reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+        const exp = mTxs.filter(tx=>tx.type==='debit' && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+        const inv = mTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment'&&!transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
         return { label:MN[m-1], income:inc, expenses:exp, savings:inc-exp, investments:inv };
       });
     }
@@ -325,12 +1209,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     const allKeys = [...new Set(transactions.map(tx=>tx.date.slice(0,7)))].sort();
     return allKeys.map(key => {
       const mTxs = transactions.filter(tx=>tx.date.startsWith(key));
-      const inc = mTxs.filter(tx=>tx.type==='credit').reduce((s,tx)=>s+tx.amount,0);
-      const exp = mTxs.filter(tx=>tx.type==='debit').reduce((s,tx)=>s+tx.amount,0);
-      const inv = mTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment').reduce((s,tx)=>s+tx.amount,0);
+      const inc = mTxs.filter(tx=>tx.type==='credit' && !reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+      const exp = mTxs.filter(tx=>tx.type==='debit' && !transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
+      const inv = mTxs.filter(tx=>tx.type==='debit'&&tx.category==='Investment'&&!transferTxIds.has(tx.id!)).reduce((s,tx)=>s+tx.amount,0);
       return { label:`${MN[parseInt(key.slice(5,7))-1]} ${key.slice(2,4)}`, income:inc, expenses:exp, savings:inc-exp, investments:inv };
     });
-  }, [transactions, periodTxs, selYear, selMonth, selWeek, weekBuckets]);
+  }, [transactions, periodTxs, selYear, selMonth, selWeek, weekBuckets, reconciledTxIds, transferTxIds]);
 
   // ── Existing 30-day forecast (always uses all-time data) ─────────────────
   const recurringAll  = detectRecurring(transactions);
@@ -362,8 +1246,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const handleYearChange = (y: string) => { setSelYear(y); setSelMonth('all'); setSelWeek('all'); };
   const handleMonthChange = (m: string) => { setSelMonth(m); setSelWeek('all'); };
 
+
+
   return (
-    <div className="view-container animate-fade-in">
+    <div className="view-container animate-fade-in-opacity">
       {/* Recurring popup */}
       {recurringPopup && (
         <RecurringPopup
@@ -371,6 +1257,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           allTransactions={transactions}
           currency={currency}
           onClose={() => setRecurringPopup(null)}
+        />
+      )}
+
+      {/* Meter detail modal */}
+      {activeMeterDetail && (
+        <MeterDetailModal
+          type={activeMeterDetail}
+          onClose={() => setActiveMeterDetail(null)}
+          periodTxs={periodTxs}
+          transactions={transactions}
+          periodSlips={periodSlips}
+          reconciledTxIds={reconciledTxIds}
+          currency={currency}
+          debts={debts}
+          budgets={budgets}
+          periodIncome={periodIncome}
+          periodExpenses={periodExpenses}
+          periodSavings={periodSavings}
+          mappings={mappings}
         />
       )}
 
@@ -384,6 +1289,70 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <span>AI Parsing Active</span>
         </div>
       </header>
+
+      {showBanner && (
+        <div className="glass-card smart-review-toast" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '14px 20px',
+          background: 'rgba(139, 92, 246, 0.08)',
+          borderColor: 'hsla(263, 90%, 65%, 0.3)',
+          marginBottom: '16px',
+          borderRadius: 'var(--border-radius-lg)',
+          boxShadow: '0 0 15px rgba(139, 92, 246, 0.1)',
+          flexShrink: 0
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <RefreshCw size={18} style={{ color: 'var(--primary)' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Smart Review Pending
+              </span>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                We detected {reconciledPairs.length + reconciledTransfers.length} potential duplicate transactions/transfers from your recent upload/entry.
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => {
+                localStorage.removeItem('kosha_show_smart_review_banner');
+                onNavigate('smart_review');
+              }}
+              style={{
+                background: 'var(--primary)',
+                color: 'var(--text-primary)',
+                border: 'none',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Review Now
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('kosha_show_smart_review_banner');
+                setShowBanner(false);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: '1.25rem',
+                padding: '4px',
+                lineHeight: 1
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── All Time Worth Banner (always all-time, not period-filtered) ──── */}
       <div className="glass-card net-worth-banner">
@@ -455,11 +1424,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <span className="meters-title">Financial Meters · {periodLabel}</span>
         </div>
         <div className="meters-row">
-          <MeterGauge label="Expense Rate" subtitle="of income spent" value={expenseRate} displayValue={`${Math.round(expenseRate)}%`} thresholds={{ ok: 60, warn: 80 }} lowIsGood helpText={expenseRate > 80 ? 'High! Reduce discretionary spending.' : expenseRate > 60 ? 'Moderate. Watch spending.' : 'Healthy spending level.'} />
-          <MeterGauge label="Savings Rate" subtitle="of income saved" value={savingsRateClamped} displayValue={`${Math.round(savingsRateClamped)}%`} thresholds={{ ok: 20, warn: 10 }} lowIsGood={false} helpText={savingsRateClamped >= 20 ? 'Excellent! Keep it up.' : savingsRateClamped >= 10 ? 'Good. Push past 20%.' : 'Low. Try to save 10%+'} />
-          <MeterGauge label="Investment Rate" subtitle="of income invested" value={investmentRate} displayValue={`${Math.round(investmentRate)}%`} thresholds={{ ok: 15, warn: 5 }} lowIsGood={false} helpText={investmentRate >= 15 ? 'Strong! Wealth is growing.' : investmentRate >= 5 ? 'Decent. Push to 15%.' : 'Low. Start a SIP.'} />
-          <MeterGauge label="Budget Compliance" subtitle="categories in limit" value={budgetCompliancePct} displayValue={`${budgetCompliancePct}%`} thresholds={{ ok: 80, warn: 50 }} lowIsGood={false} helpText={budgets.length === 0 ? 'Set budgets to track.' : budgetCompliancePct === 100 ? 'Perfect! All budgets on track.' : budgetCompliancePct >= 80 ? 'A few categories over.' : 'Several budgets exceeded.'} />
-          <MeterGauge label="Debt-to-Income" subtitle="of income on EMIs" value={dtiRate} displayValue={`${Math.round(dtiRate)}%`} thresholds={{ ok: 30, warn: 50 }} lowIsGood helpText={debts.length === 0 ? 'No active debts. Great!' : dtiRate <= 30 ? 'Healthy DTI.' : dtiRate <= 50 ? 'Moderate. Avoid new loans.' : 'High DTI. Prioritise payoff.'} />
+          <MeterGauge label="Expense Rate" subtitle="of income spent" value={expenseRate} displayValue={`${Math.round(expenseRate)}%`} thresholds={{ ok: 60, warn: 80 }} lowIsGood helpText={expenseRate > 80 ? 'High! Reduce discretionary spending.' : expenseRate > 60 ? 'Moderate. Watch spending.' : 'Healthy spending level.'} onClick={() => setActiveMeterDetail('expense')} />
+          <MeterGauge label="Savings Rate" subtitle="of income saved" value={savingsRateClamped} displayValue={`${Math.round(savingsRateClamped)}%`} thresholds={{ ok: 20, warn: 10 }} lowIsGood={false} helpText={savingsRateClamped >= 20 ? 'Excellent! Keep it up.' : savingsRateClamped >= 10 ? 'Good. Push past 20%.' : 'Low. Try to save 10%+'} onClick={() => setActiveMeterDetail('savings')} />
+          <MeterGauge label="Investment Rate" subtitle="of income invested" value={investmentRate} displayValue={`${Math.round(investmentRate)}%`} thresholds={{ ok: 15, warn: 5 }} lowIsGood={false} helpText={investmentRate >= 15 ? 'Strong! Wealth is growing.' : investmentRate >= 5 ? 'Decent. Push to 15%.' : 'Low. Start a SIP.'} onClick={() => setActiveMeterDetail('investment')} />
+          <MeterGauge label="Tax Rate" subtitle="of gross income" value={taxRate} displayValue={`${Math.round(taxRate)}%`} thresholds={{ ok: 20, warn: 30 }} lowIsGood helpText={taxRate > 30 ? 'High tax burden. Look for exemptions.' : taxRate > 20 ? 'Moderate tax bracket.' : 'Low tax rate.'} onClick={() => setActiveMeterDetail('tax')} />
+          <MeterGauge label="Budget Compliance" subtitle="categories in limit" value={budgetCompliancePct} displayValue={`${budgetCompliancePct}%`} thresholds={{ ok: 80, warn: 50 }} lowIsGood={false} helpText={budgets.length === 0 ? 'Set budgets to track.' : budgetCompliancePct === 100 ? 'Perfect! All budgets on track.' : budgetCompliancePct >= 80 ? 'A few categories over.' : 'Several budgets exceeded.'} onClick={() => setActiveMeterDetail('budget')} />
+          <MeterGauge label="Debt-to-Income" subtitle="of income on EMIs" value={dtiRate} displayValue={`${Math.round(dtiRate)}%`} thresholds={{ ok: 30, warn: 50 }} lowIsGood helpText={debts.length === 0 ? 'No active debts. Great!' : dtiRate <= 30 ? 'Healthy DTI.' : dtiRate <= 50 ? 'Moderate. Avoid new loans.' : 'High DTI. Prioritise payoff.'} onClick={() => setActiveMeterDetail('debt')} />
         </div>
       </div>
 
@@ -580,7 +1550,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                 }
                 transactions.forEach(tx=>{
                   const k=tx.date.slice(0,7);
-                  if(monthsData[k]){if(tx.type==='credit')monthsData[k].income+=tx.amount;else monthsData[k].expenses+=tx.amount;}
+                  if(monthsData[k]){
+                    if(tx.type==='credit') {
+                      if (!reconciledTxIds.has(tx.id!)) {
+                        monthsData[k].income+=tx.amount;
+                      }
+                    } else {
+                      monthsData[k].expenses+=tx.amount;
+                    }
+                  }
                 });
                 return Object.values(monthsData);
               })()}>
@@ -861,7 +1839,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         .meters-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
         .meters-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
 
-        .meters-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+        .meters-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
         @media (max-width: 900px) { .meters-row { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 600px) { .meters-row { grid-template-columns: repeat(2, 1fr); } }
 
@@ -1085,6 +2063,96 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
         .amt-cell { font-weight: 700; }
         .debit-color { color: var(--danger); }
+
+        /* ── Meter Detail Modal Styles ── */
+        .modal-section-title {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: var(--text-primary);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-top: 4px;
+          margin-bottom: 2px;
+        }
+
+        .formula-card {
+          padding: 16px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.02);
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .formula-text {
+          font-size: 0.88rem;
+          font-weight: 600;
+          color: var(--text-secondary);
+        }
+
+        .formula-values {
+          font-size: 0.8rem;
+          color: var(--text-muted);
+          font-family: monospace;
+        }
+
+        .modal-split-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+
+        @media (max-width: 640px) {
+          .modal-split-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .split-col {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .breakdown-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          max-height: 200px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .breakdown-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 12px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.04);
+          border-radius: 8px;
+        }
+
+        .breakdown-name {
+          font-size: 0.82rem;
+          font-weight: 500;
+          color: var(--text-secondary);
+        }
+
+        .breakdown-value {
+          font-size: 0.85rem;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .no-data-text {
+          font-size: 0.85rem;
+          color: var(--text-muted);
+          text-align: center;
+          padding: 16px;
+        }
       `}</style>
     </div>
   );
@@ -1096,28 +2164,38 @@ interface MeterGaugeProps {
   value: number; displayValue: string;
   thresholds: { ok: number; warn: number };
   lowIsGood: boolean; helpText: string;
+  onClick?: () => void;
 }
 
-const MeterGauge: React.FC<MeterGaugeProps> = ({ label, subtitle, value, displayValue, thresholds, lowIsGood, helpText }) => {
+const MeterGauge: React.FC<MeterGaugeProps> = ({ label, subtitle, value, displayValue, thresholds, lowIsGood, helpText, onClick }) => {
+  const safeValue = isNaN(value) ? 0 : value;
   const getColour = () => {
     if (lowIsGood) {
-      if (value <= thresholds.ok)   return '#22c55e';
-      if (value <= thresholds.warn) return '#f97316';
+      if (safeValue <= thresholds.ok)   return '#22c55e';
+      if (safeValue <= thresholds.warn) return '#f97316';
       return '#ef4444';
     } else {
-      if (value >= thresholds.ok)   return '#22c55e';
-      if (value >= thresholds.warn) return '#f97316';
+      if (safeValue >= thresholds.ok)   return '#22c55e';
+      if (safeValue >= thresholds.warn) return '#f97316';
       return '#ef4444';
     }
   };
   const colour  = getColour();
   const r       = 46;
   const arcLen  = Math.PI * r;
-  const filled  = (value / 100) * arcLen;
+  const filled  = (safeValue / 100) * arcLen;
   const gap     = arcLen - filled;
 
   return (
-    <div className="glass-card meter-card" style={{ borderColor: colour + '33' }}>
+    <div
+      className="glass-card meter-card"
+      style={{
+        borderColor: colour + '33',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'var(--transition-smooth)'
+      }}
+      onClick={onClick}
+    >
       <svg width="120" height="68" viewBox="0 0 120 68" className="meter-svg">
         <path d="M7,63 A53,53 0 0,1 113,63" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" strokeLinecap="round" />
         <path d="M7,63 A53,53 0 0,1 113,63" fill="none" stroke={colour} strokeWidth="10" strokeLinecap="round"

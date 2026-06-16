@@ -32,6 +32,8 @@ export interface SalarySlip {
   netPay: number;
   pdfName?: string;
   pdfSourceId?: string;
+  earningsBreakdown?: { name: string; amount: number }[];
+  deductionsBreakdown?: { name: string; amount: number }[];
 }
 
 export interface Investment {
@@ -93,6 +95,14 @@ export interface ParsedPdf {
   type: 'bank' | 'salary';
 }
 
+export interface ReconDecision {
+  id: string; // `${transactionId}_${salarySlipId}`
+  transactionId: string;
+  salarySlipId: string;
+  status: 'accepted' | 'rejected';
+  updatedAt: string; // ISO string
+}
+
 /** A spending/income category (default or user-created) */
 export interface Category {
   id?: number;
@@ -126,6 +136,7 @@ class KoshaDB extends Dexie {
   netWorthSnapshots!: Table<NetWorthSnapshot, string>;
   parsedPdfs!: Table<ParsedPdf, string>;
   categories!: Table<Category, number>;
+  reconDecisions!: Table<ReconDecision, string>;
 
   constructor() {
     super('KoshaFinanceDB');
@@ -155,6 +166,9 @@ class KoshaDB extends Dexie {
       if (count === 0) {
         await tx.table('categories').bulkAdd(DEFAULT_CATEGORIES);
       }
+    });
+    this.version(5).stores({
+      reconDecisions: 'id, transactionId, salarySlipId'
     });
   }
 }
@@ -211,4 +225,75 @@ export async function recordNetWorthSnapshot(
     cashBalance,
     portfolioValue,
   });
+}
+
+export interface SalarySlipMapping {
+  id: string;
+  componentName: string;
+  componentType: 'earning' | 'deduction';
+  targetCategory: 'investment' | 'savings' | 'tax' | 'expense' | 'ignore';
+}
+
+export async function autoRepairTransactionDates(): Promise<number> {
+  const transactions = await db.transactions.toArray();
+  const toUpdate: Transaction[] = [];
+
+  const pdfGroups = new Map<string, Transaction[]>();
+  const nonPdfTxs: Transaction[] = [];
+
+  for (const tx of transactions) {
+    if (tx.pdfSourceId) {
+      const list = pdfGroups.get(tx.pdfSourceId) || [];
+      list.push(tx);
+      pdfGroups.set(tx.pdfSourceId, list);
+    } else {
+      nonPdfTxs.push(tx);
+    }
+  }
+
+  const isSwappedDate = (dateStr: string) => {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const month = parseInt(parts[1]);
+      return month > 12;
+    }
+    return false;
+  };
+
+  const swapMonthAndDay = (dateStr: string) => {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const y = parts[0];
+      const d = parts[1];
+      const m = parts[2];
+      const pad = (s: string) => s.padStart(2, '0');
+      return `${y}-${pad(m)}-${pad(d)}`;
+    }
+    return dateStr;
+  };
+
+  for (const txList of pdfGroups.values()) {
+    const hasAnySwapped = txList.some(tx => isSwappedDate(tx.date));
+    if (hasAnySwapped) {
+      for (const tx of txList) {
+        const repairedDate = swapMonthAndDay(tx.date);
+        if (repairedDate !== tx.date) {
+          toUpdate.push({ ...tx, date: repairedDate });
+        }
+      }
+    }
+  }
+
+  for (const tx of nonPdfTxs) {
+    if (isSwappedDate(tx.date)) {
+      const repairedDate = swapMonthAndDay(tx.date);
+      toUpdate.push({ ...tx, date: repairedDate });
+    }
+  }
+
+  if (toUpdate.length > 0) {
+    await db.transactions.bulkPut(toUpdate);
+  }
+
+  return toUpdate.length;
 }

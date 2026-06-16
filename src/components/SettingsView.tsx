@@ -340,6 +340,7 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
         </div>
+
       </div>
 
       <style>{`

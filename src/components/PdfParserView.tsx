@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, getSetting } from '../db/database';
 import type { Transaction, SalarySlip, ParsedPdf, Category } from '../db/database';
-import { extractTextFromPdf, renderPdfPageToCanvas } from '../services/pdfParser';
-import { parseBankStatementWithGemini, parseSalarySlipWithGemini, isGeminiFallbackError } from '../services/gemini';
+import { renderPdfPageToCanvas, extractPagesFromPdf } from '../services/pdfParser';
+import { parseSalarySlipWithGemini, isGeminiFallbackError, parseChunkWithGemini } from '../services/gemini';
 import { parseBankStatementWithGroq, parseSalarySlipWithGroq } from '../services/groq';
 import {
   FileUp,
@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Check,
   X,
+  RefreshCw,
   Settings,
   History,
   Trash2,
@@ -21,6 +22,7 @@ import {
   Cpu,
   CalendarDays,
   Hash,
+  Sparkles,
 } from 'lucide-react';
 
 type LlmProvider = 'gemini' | 'groq';
@@ -47,6 +49,13 @@ export const PdfParserView: React.FC = () => {
   const [parsedTransactions, setParsedTransactions] = useState<Transaction[]>([]);
   const [parsedSalarySlip, setParsedSalarySlip] = useState<SalarySlip | null>(null);
   const [lastUsedProvider, setLastUsedProvider] = useState<LlmProvider>('gemini');
+
+  // Session states for progress caching & resuming
+  const [extractedPages, setExtractedPages] = useState<string[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
+  const [sessionTransactions, setSessionTransactions] = useState<Transaction[]>([]);
+  const [sessionSalarySlip, setSessionSalarySlip] = useState<SalarySlip | null>(null);
+  const [resumeAvailable, setResumeAvailable] = useState<boolean>(false);
 
   // PDF preview
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -122,9 +131,145 @@ export const PdfParserView: React.FC = () => {
     setSuccess(null);
     setPasswordRequired(false);
     setPdfPassword('');
+    setExtractedPages([]);
+    setCurrentPageIndex(0);
+    setSessionTransactions([]);
+    setSessionSalarySlip(null);
+    setResumeAvailable(false);
   };
 
   // ─── Analysis ────────────────────────────────────────────────────────────────
+
+  const parsePagesLoop = async (
+    pages: string[],
+    startIndex: number,
+    initialTxs: Transaction[],
+    initialSlip: SalarySlip | null,
+    provider: LlmProvider,
+    activePassword?: string
+  ) => {
+    let currentProvider = provider;
+    let accumulatedTxs = [...initialTxs];
+    let accumulatedSlip = initialSlip;
+    const totalPages = pages.length;
+
+    setResumeAvailable(false);
+
+    for (let i = startIndex; i < totalPages; i++) {
+      setCurrentPageIndex(i);
+      const providerLabel = currentProvider === 'groq' ? 'Groq' : 'Gemini';
+      setLoadingStep(`Analyzing Page ${i + 1} of ${totalPages} with ${providerLabel}...`);
+
+      let pageTxs: Transaction[] = [];
+      let pageSlip: SalarySlip | null = null;
+      let success = false;
+      let attempt = 1;
+      const maxAttempts = 3;
+      let retryDelay = 2000;
+
+      while (!success && attempt <= maxAttempts) {
+        try {
+          if (activeTab === 'bank') {
+            if (currentProvider === 'gemini') {
+              const rawTxs = await parseChunkWithGemini(pages[i], i, totalPages, apiKey!);
+              pageTxs = rawTxs.map((tx: any) => ({
+                ...tx,
+                id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                source: 'bank_statement' as const,
+                category: tx.category || 'Others',
+                pdfName: file!.name,
+              }));
+            } else {
+              if (!groqApiKey) throw new Error('Groq API key not configured.');
+              const rawTxs = await parseBankStatementWithGroq(pages[i], groqApiKey);
+              pageTxs = rawTxs.map((tx: any) => ({
+                ...tx,
+                pdfName: file!.name,
+              }));
+            }
+          } else {
+            if (currentProvider === 'gemini') {
+              pageSlip = await parseSalarySlipWithGemini(pages[i], apiKey!);
+            } else {
+              if (!groqApiKey) throw new Error('Groq API key not configured.');
+              pageSlip = await parseSalarySlipWithGroq(pages[i], groqApiKey);
+            }
+            if (pageSlip) {
+              pageSlip.pdfName = file!.name;
+            }
+          }
+          success = true;
+        } catch (err: any) {
+          const isRateLimit = isGeminiFallbackError(err) || err.message?.includes('429') || err.message?.includes('limit');
+          
+          if (isRateLimit && attempt < maxAttempts) {
+            setLoadingStep(`Rate limit hit on ${providerLabel}. Retrying Page ${i + 1} in ${retryDelay / 1000}s (Attempt ${attempt} of ${maxAttempts})...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            retryDelay *= 2;
+            attempt++;
+          } else {
+            const fallbackAvailable = currentProvider === 'gemini' ? !!groqApiKey : !!apiKey;
+            if (fallbackAvailable && isRateLimit) {
+              const nextProvider = currentProvider === 'gemini' ? 'groq' : 'gemini';
+              const nextLabel = nextProvider === 'groq' ? 'Groq' : 'Gemini';
+              setLoadingStep(`Quota/Limit hit on ${providerLabel} — switching to ${nextLabel}...`);
+              console.warn(`${currentProvider} failed, falling back to ${nextProvider} on Page ${i + 1}:`, err.message);
+              currentProvider = nextProvider;
+              attempt = 1;
+              retryDelay = 2000;
+              continue;
+            } else {
+              setResumeAvailable(true);
+              throw err;
+            }
+          }
+        }
+      }
+
+      if (activeTab === 'bank') {
+        accumulatedTxs.push(...pageTxs);
+        const seen = new Set<string>();
+        accumulatedTxs = accumulatedTxs.filter(tx => {
+          const key = `${tx.date}|${tx.description}|${tx.amount}|${tx.type}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setSessionTransactions(accumulatedTxs);
+      } else if (pageSlip) {
+        accumulatedSlip = pageSlip;
+        setSessionSalarySlip(accumulatedSlip);
+      }
+
+      setLastUsedProvider(currentProvider);
+
+      if (i < totalPages - 1) {
+        setLoadingStep(`Page ${i + 1} parsed. Waiting 1.5s to space out requests...`);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
+
+    if (activeTab === 'bank') {
+      setParsedTransactions(accumulatedTxs);
+    } else if (accumulatedSlip) {
+      setParsedSalarySlip(accumulatedSlip);
+    }
+
+    const finalLabel = currentProvider === 'groq' ? 'Groq · Llama 3.3 70B' : 'Gemini 2.5 Flash';
+    setSuccess(`✅ PDF parsed via ${finalLabel}! Review and confirm the data below.`);
+    setPasswordRequired(false);
+    setPdfPassword('');
+    setIsLoading(false);
+    setResumeAvailable(false);
+
+    setTimeout(() => {
+      if (canvasRef.current) {
+        renderPdfPageToCanvas(file!, 1, canvasRef.current, activePassword)
+          .then(() => setShowPdfPreview(true))
+          .catch(() => setShowPdfPreview(false));
+      }
+    }, 500);
+  };
 
   const triggerAnalysis = async (customPassword?: string) => {
     if (!file || !apiKey) return;
@@ -132,83 +277,19 @@ export const PdfParserView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setSuccess(null);
+    setResumeAvailable(false);
 
     const activePassword = customPassword || pdfPassword;
 
     try {
-      setLoadingStep('Extracting text from PDF...');
-      const extractedText = await extractTextFromPdf(file, activePassword);
+      setLoadingStep('Extracting pages from PDF...');
+      const pages = await extractPagesFromPdf(file, activePassword);
+      setExtractedPages(pages);
+      setCurrentPageIndex(0);
+      setSessionTransactions([]);
+      setSessionSalarySlip(null);
 
-      setLoadingStep(`Analyzing with ${selectedProvider === 'groq' ? 'Groq · Llama 3.3' : 'Gemini 2.5 Flash'} (processing page by page for full accuracy)...`);
-
-      const runWithGemini = async () => {
-        if (activeTab === 'bank') {
-          const txs = await parseBankStatementWithGemini(extractedText, apiKey!);
-          return { txs, slip: null };
-        } else {
-          const slip = await parseSalarySlipWithGemini(extractedText, apiKey!);
-          return { txs: null, slip };
-        }
-      };
-
-      const runWithGroq = async () => {
-        if (!groqApiKey) throw new Error('No Groq API key configured. Please add one in Settings.');
-        if (activeTab === 'bank') {
-          const txs = await parseBankStatementWithGroq(extractedText, groqApiKey);
-          return { txs, slip: null };
-        } else {
-          const slip = await parseSalarySlipWithGroq(extractedText, groqApiKey);
-          return { txs: null, slip };
-        }
-      };
-
-      let result: { txs: Transaction[] | null; slip: SalarySlip | null };
-      let finalProvider: LlmProvider;
-
-      if (selectedProvider === 'groq' && groqApiKey) {
-        result = await runWithGroq();
-        finalProvider = 'groq';
-      } else {
-        // Default: Gemini, with auto-fallback to Groq if quota exceeded
-        try {
-          result = await runWithGemini();
-          finalProvider = 'gemini';
-        } catch (geminiErr: any) {
-          if (isGeminiFallbackError(geminiErr) && groqApiKey) {
-            setLoadingStep('Gemini limit reached — switching to Groq (Llama 3.3 70B)...');
-            console.warn('Gemini failed, falling back to Groq:', geminiErr.message);
-            result = await runWithGroq();
-            finalProvider = 'groq';
-          } else {
-            throw geminiErr;
-          }
-        }
-      }
-
-      setLastUsedProvider(finalProvider);
-
-      if (activeTab === 'bank' && result.txs) {
-        const mappedTxs = result.txs.map(t => ({ ...t, pdfName: file.name }));
-        setParsedTransactions(mappedTxs);
-      } else if (activeTab === 'salary' && result.slip) {
-        result.slip.pdfName = file.name;
-        setParsedSalarySlip(result.slip);
-      }
-
-      const providerLabel = finalProvider === 'groq' ? 'Groq · Llama 3.3 70B' : 'Gemini 2.5 Flash';
-      setSuccess(`✅ PDF parsed via ${providerLabel}! Review and confirm the data below.`);
-      setPasswordRequired(false);
-      setPdfPassword('');
-
-      // Render first page preview
-      setTimeout(() => {
-        if (canvasRef.current) {
-          renderPdfPageToCanvas(file, 1, canvasRef.current, activePassword)
-            .then(() => setShowPdfPreview(true))
-            .catch(() => setShowPdfPreview(false));
-        }
-      }, 500);
-
+      await parsePagesLoop(pages, 0, [], null, selectedProvider, activePassword);
     } catch (err: any) {
       console.error(err);
       if (err?.message === 'PasswordRequired') {
@@ -218,9 +299,34 @@ export const PdfParserView: React.FC = () => {
         setPasswordRequired(true);
         setError('Incorrect password. Please try again.');
       } else {
-        setError(err?.message || 'Failed to process document. Please try again.');
+        setError(err?.message || 'Failed to process document. You can resume once the issue is resolved.');
       }
-    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resumeAnalysis = async () => {
+    if (!file) return;
+
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+    setResumeAvailable(false);
+
+    const activePassword = pdfPassword;
+
+    try {
+      await parsePagesLoop(
+        extractedPages,
+        currentPageIndex,
+        sessionTransactions,
+        sessionSalarySlip,
+        lastUsedProvider,
+        activePassword
+      );
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Failed to resume parsing.');
       setIsLoading(false);
     }
   };
@@ -260,13 +366,34 @@ export const PdfParserView: React.FC = () => {
         const pdfId = await db.parsedPdfs.add(pdfRecord);
         const pdfSourceId = String(pdfId);
 
+        const hasSwapped = parsedTransactions.some(tx => {
+          const parts = tx.date.split('-');
+          return parts.length === 3 && parseInt(parts[1]) > 12;
+        });
+
+        const normalizeDate = (dateStr: string) => {
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            const y = parts[0];
+            const d = parts[1];
+            const m = parts[2];
+            if (hasSwapped) {
+              const pad = (s: string) => s.padStart(2, '0');
+              return `${y}-${pad(m)}-${pad(d)}`;
+            }
+          }
+          return dateStr;
+        };
+
         const toInsert = parsedTransactions.map(tx => ({
           ...tx,
+          date: normalizeDate(tx.date),
           id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           pdfSourceId,
         }));
 
         await db.transactions.bulkAdd(toInsert);
+        localStorage.setItem('kosha_show_smart_review_banner', 'true');
         setSuccess(`Successfully imported ${toInsert.length} transactions to your ledger!`);
         setParsedTransactions([]);
         setFile(null);
@@ -274,6 +401,29 @@ export const PdfParserView: React.FC = () => {
 
       } else if (activeTab === 'salary') {
         if (!parsedSalarySlip) return;
+
+        // Clear existing slips for the same month & year to prevent duplicates and orphaned transactions
+        const existingSlips = await db.salarySlips
+          .where('[year+month]')
+          .equals([parsedSalarySlip.year, parsedSalarySlip.month])
+          .toArray();
+
+        for (const oldSlip of existingSlips) {
+          if (oldSlip.pdfSourceId) {
+            const oldTxs = await db.transactions.where('pdfSourceId').equals(oldSlip.pdfSourceId).toArray();
+            for (const tx of oldTxs) {
+              if (tx.id) {
+                await db.reconDecisions.where('transactionId').equals(tx.id).delete();
+                await db.transactions.delete(tx.id);
+              }
+            }
+            await db.parsedPdfs.delete(oldSlip.pdfSourceId);
+          }
+          if (oldSlip.id) {
+            await db.reconDecisions.where('salarySlipId').equals(oldSlip.id).delete();
+            await db.salarySlips.delete(oldSlip.id);
+          }
+        }
 
         // Save ParsedPdf record
         const pdfRecord: ParsedPdf = {
@@ -305,6 +455,7 @@ export const PdfParserView: React.FC = () => {
           pdfSourceId,
         };
         await db.transactions.add(salaryTx);
+        localStorage.setItem('kosha_show_smart_review_banner', 'true');
 
         setSuccess(`Salary slip imported! Net Pay ₹${parsedSalarySlip.netPay.toLocaleString()} added.`);
         setParsedSalarySlip(null);
@@ -531,15 +682,59 @@ export const PdfParserView: React.FC = () => {
                 <div className="glass-card loading-card">
                   <Loader2 size={48} className="spinner-icon primary-color" />
                   <h3>Analyzing Document</h3>
+                  {extractedPages.length > 0 && (
+                    <div style={{
+                      width: '100%',
+                      maxWidth: '300px',
+                      background: 'rgba(255,255,255,0.05)',
+                      height: '6px',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      margin: '12px 0 6px 0'
+                    }}>
+                      <div style={{
+                        width: `${((currentPageIndex) / extractedPages.length) * 100}%`,
+                        background: 'var(--primary)',
+                        height: '100%',
+                        borderRadius: '3px',
+                        transition: 'width 0.3s ease-out',
+                        boxShadow: '0 0 8px var(--primary)'
+                      }} />
+                    </div>
+                  )}
                   <p className="glow-text">{loadingStep}</p>
                 </div>
               )}
 
               {/* Alerts */}
               {error && (
-                <div className="alert alert-error-box">
-                  <AlertCircle size={18} />
-                  <span>{error}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                  <div className="alert alert-error-box">
+                    <AlertCircle size={18} />
+                    <span>{error}</span>
+                  </div>
+                  {resumeAvailable && (
+                    <button
+                      onClick={resumeAnalysis}
+                      className="btn btn-primary-glow"
+                      style={{
+                        padding: '12px 20px',
+                        borderRadius: 'var(--border-radius-md)',
+                        border: '1px solid hsla(263, 90%, 65%, 0.3)',
+                        background: 'var(--primary-glow)',
+                        color: 'var(--text-primary)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        transition: 'var(--transition-smooth)'
+                      }}
+                    >
+                      <RefreshCw size={16} /> Resume Parsing from Page {currentPageIndex + 1}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -581,6 +776,46 @@ export const PdfParserView: React.FC = () => {
                         <span>Confirm & Import Data</span>
                       </button>
                     </div>
+
+                    {activeTab === 'bank' && (
+                      <div className="pdf-summary-bar animate-fade-in" style={{
+                        display: 'flex',
+                        gap: '24px',
+                        padding: '12px 24px',
+                        background: 'rgba(255,255,255,0.015)',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        alignItems: 'center',
+                        flexWrap: 'wrap'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Credits (Income)</span>
+                          <span style={{ fontSize: '1.1rem', color: 'var(--success)', fontWeight: 700 }}>
+                            ₹{parsedTransactions.filter(tx => tx.type === 'credit').reduce((s, tx) => s + tx.amount, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.08)' }} className="hide-on-mobile" />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Debits (Expenses)</span>
+                          <span style={{ fontSize: '1.1rem', color: 'var(--danger)', fontWeight: 700 }}>
+                            ₹{parsedTransactions.filter(tx => tx.type === 'debit').reduce((s, tx) => s + tx.amount, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.08)' }} className="hide-on-mobile" />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net Cash Flow</span>
+                          {(() => {
+                            const credits = parsedTransactions.filter(tx => tx.type === 'credit').reduce((s, tx) => s + tx.amount, 0);
+                            const debits = parsedTransactions.filter(tx => tx.type === 'debit').reduce((s, tx) => s + tx.amount, 0);
+                            const net = credits - debits;
+                            return (
+                              <span style={{ fontSize: '1.1rem', color: net >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
+                                {net >= 0 ? '+' : ''}₹{net.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="review-scroll-container">
                       {activeTab === 'bank' ? (
@@ -720,6 +955,48 @@ export const PdfParserView: React.FC = () => {
                                   onChange={e => handleSalaryChange('otherDeductions', parseFloat(e.target.value) || 0)} />
                               </div>
                             </div>
+
+                            {((parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0) ||
+                              (parsedSalarySlip.deductionsBreakdown && parsedSalarySlip.deductionsBreakdown.length > 0)) && (
+                              <div className="grid-section" style={{ gridColumn: '1 / -1', marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
+                                <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <Sparkles size={16} className="primary-color" style={{ color: 'var(--primary)' }} />
+                                  <span>AI Extracted Itemized Components</span>
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '12px' }}>
+                                  <div>
+                                    <h5 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Earnings / Allowances</h5>
+                                    {parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0 ? (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                        {parsedSalarySlip.earningsBreakdown.map((item, idx) => (
+                                          <div key={idx} style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.82rem', display: 'flex', gap: '8px' }}>
+                                            <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{item.name}</span>
+                                            <span style={{ color: 'var(--success)', fontWeight: 700 }}>₹{item.amount.toLocaleString('en-IN')}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>None found.</span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <h5 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Deductions</h5>
+                                    {parsedSalarySlip.deductionsBreakdown && parsedSalarySlip.deductionsBreakdown.length > 0 ? (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                        {parsedSalarySlip.deductionsBreakdown.map((item, idx) => (
+                                          <div key={idx} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.82rem', display: 'flex', gap: '8px' }}>
+                                            <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{item.name}</span>
+                                            <span style={{ color: 'var(--danger)', fontWeight: 700 }}>₹{item.amount.toLocaleString('en-IN')}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>None found.</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )
                       )}
@@ -1151,6 +1428,10 @@ export const PdfParserView: React.FC = () => {
         .text-center { text-align: center; }
         .secondary-color { color: var(--text-secondary); }
         .primary-color { color: var(--primary); }
+
+        @media (max-width: 576px) {
+          .hide-on-mobile { display: none !important; }
+        }
       `}</style>
     </div>
   );

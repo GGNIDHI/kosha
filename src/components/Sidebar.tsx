@@ -1,4 +1,7 @@
 import React from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db/database';
+import { getReconciledPairs, getReconciledTransfers } from '../utils/reconciliation';
 import {
   LayoutDashboard,
   ReceiptText,
@@ -12,6 +15,8 @@ import {
   Calculator,
   FileSpreadsheet,
   Tag,
+  RefreshCw,
+  Sliders,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,6 +29,7 @@ const MENU_SECTIONS = [
     label: 'Overview',
     items: [
       { id: 'dashboard', name: 'Dashboard',       icon: LayoutDashboard },
+      { id: 'smart_review', name: 'Smart Review', subtitle: '(Duplicate Transactions)', icon: RefreshCw },
       { id: 'insights',  name: 'AI Insights',     icon: Sparkles },
     ],
   },
@@ -36,6 +42,7 @@ const MENU_SECTIONS = [
       { id: 'goals',       name: 'Savings Goals',  icon: Trophy },
       { id: 'debts',       name: 'Debts & EMIs',   icon: CreditCard },
       { id: 'categories',  name: 'Categories',     icon: Tag },
+      { id: 'salary_mappings', name: 'Salary Mappings', icon: Sliders },
     ],
   },
   {
@@ -55,6 +62,15 @@ const MENU_SECTIONS = [
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
+  const pendingCount = useLiveQuery(async () => {
+    const transactions = await db.transactions.toArray();
+    const salarySlips = await db.salarySlips.toArray();
+    const decisions = await db.reconDecisions.toArray();
+    const pairs = getReconciledPairs(transactions, salarySlips, decisions);
+    const transfers = getReconciledTransfers(transactions, decisions);
+    return pairs.filter(p => !p.hasDecision).length + transfers.filter(p => !p.hasDecision).length;
+  }, []) || 0;
+
   return (
     <aside className="sidebar-container">
       <div className="sidebar-brand">
@@ -74,14 +90,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
             {section.items.map(item => {
               const IconComponent = item.icon;
               const isActive = currentView === item.id;
+              const hasSub = 'subtitle' in item;
               return (
                 <button
                   key={item.id}
                   className={`nav-item ${isActive ? 'active' : ''}`}
                   onClick={() => onViewChange(item.id)}
+                  style={hasSub ? { padding: '6px 12px' } : undefined}
                 >
                   <IconComponent size={18} className="nav-icon" />
-                  <span>{item.name}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                    <span>{item.name}</span>
+                    {hasSub && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '1px' }}>
+                        {item.subtitle}
+                      </span>
+                    )}
+                  </div>
+                  {item.id === 'smart_review' && pendingCount > 0 && (
+                    <span className="badge-count" style={{
+                      background: 'var(--primary)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: '8px',
+                      boxShadow: '0 0 6px var(--primary)',
+                      marginLeft: 'auto',
+                      flexShrink: 0
+                    }}>
+                      {pendingCount}
+                    </span>
+                  )}
                   {isActive && <div className="active-indicator" />}
                 </button>
               );

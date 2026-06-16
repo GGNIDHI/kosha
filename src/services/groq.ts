@@ -99,13 +99,25 @@ export async function parseSalarySlipWithGroq(
   "taxDeducted": 5000,
   "otherDeductions": 2000,
   "grossPay": 80000,
-  "netPay": 67000
+  "netPay": 67000,
+  "earningsBreakdown": [
+    { "name": "Basic Pay", "amount": 50000 },
+    { "name": "HRA", "amount": 20000 },
+    { "name": "LTA", "amount": 10000 }
+  ],
+  "deductionsBreakdown": [
+    { "name": "Provident Fund", "amount": 6000 },
+    { "name": "TDS", "amount": 5000 },
+    { "name": "ESPP", "amount": 2000 }
+  ]
 }
 Rules:
 - month is a number 1-12
 - year is a 4-digit number
 - All monetary fields are positive numbers (use 0 if not found)
-- netPay is the final take-home amount credited to the employee`
+- netPay is the final take-home amount credited to the employee
+- earningsBreakdown is an array listing all itemized earning components (e.g. Basic, HRA, LTA, Allowances, etc.) with their amounts
+- deductionsBreakdown is an array listing all itemized deduction components (e.g. EPF, ESPP, TDS, Professional Tax, etc.) with their amounts`
         },
         {
           role: 'user',

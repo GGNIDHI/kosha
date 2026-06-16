@@ -13,6 +13,8 @@ import { CsvImportView } from './components/CsvImportView';
 import { CategoriesView } from './components/CategoriesView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingView } from './components/OnboardingView';
+import { SmartReviewView } from './components/SmartReviewView';
+import { SalaryMappingsView } from './components/SalaryMappingsView';
 import { getSetting } from './db/database';
 import './App.css';
 
@@ -60,7 +62,9 @@ function App() {
       case 'uploads':     return <PdfParserView />;
       case 'csv':         return <CsvImportView />;
       case 'categories':  return <CategoriesView />;
+      case 'salary_mappings': return <SalaryMappingsView />;
       case 'settings':    return <SettingsView />;
+      case 'smart_review': return <SmartReviewView />;
       default:            return <DashboardView onNavigate={setCurrentView} />;
     }
   };

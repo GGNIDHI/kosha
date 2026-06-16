@@ -270,6 +270,15 @@ h1, h2, h3, h4, h5, h6 {
   animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes fadeInOpacity {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in-opacity {
+  animation: fadeInOpacity 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 .glow-active {
   animation: pulse-glow 2s infinite ease-in-out;
 }

@@ -61,6 +61,9 @@ export const LedgerView: React.FC = () => {
 
     try {
       await db.transactions.add(newTx);
+      if (newTx.type === 'credit' && newTx.category === 'Salary') {
+        localStorage.setItem('kosha_show_smart_review_banner', 'true');
+      }
       // Reset form
       setDescription('');
       setAmount('');
