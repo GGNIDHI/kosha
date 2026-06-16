@@ -43,6 +43,9 @@ export interface Investment {
   avgCost: number;
   currentPrice?: number;
   lastUpdated: string;
+  type?: 'equity' | 'mutual_fund';
+  isin?: string;
+  sector?: string;
 }
 
 export interface Budget {
