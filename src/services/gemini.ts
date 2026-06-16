@@ -19,28 +19,30 @@ export function isGeminiFallbackError(error: any): boolean {
 
 // Max characters per chunk sent to Gemini. Keeps well within token limits.
 const CHUNK_SIZE = 6000;
+const BATCH_CHAR_LIMIT = 5000; // Combine pages up to this char total per API call
 
-/**
- * Splits statement text into page-sized chunks to avoid Gemini output token limits.
- * Each "--- Page N ---" block becomes its own chunk. If pages are too large,
- * they are further split by CHUNK_SIZE characters.
- */
 function splitIntoChunks(text: string): string[] {
-  // Split on page separators inserted by pdfParser.ts
   const pages = text.split(/---\s*Page\s*\d+\s*---/).map(p => p.trim()).filter(Boolean);
-
   const chunks: string[] = [];
+  let currentBatch = '';
+
   for (const page of pages) {
-    if (page.length <= CHUNK_SIZE) {
-      chunks.push(page);
-    } else {
-      // Break oversized pages into smaller character-level chunks
+    if (page.length > CHUNK_SIZE) {
+      // Oversized page: flush current batch first, then split the page itself
+      if (currentBatch) { chunks.push(currentBatch.trim()); currentBatch = ''; }
       for (let i = 0; i < page.length; i += CHUNK_SIZE) {
         chunks.push(page.slice(i, i + CHUNK_SIZE));
       }
+    } else if (currentBatch.length + page.length > BATCH_CHAR_LIMIT) {
+      // Adding this page would exceed batch limit: flush and start new batch
+      if (currentBatch) chunks.push(currentBatch.trim());
+      currentBatch = page;
+    } else {
+      // Safe to add page to current batch
+      currentBatch += (currentBatch ? '\n\n' : '') + page;
     }
   }
-  // If no page separators were found, treat entire text as one chunk
+  if (currentBatch) chunks.push(currentBatch.trim());
   return chunks.length > 0 ? chunks : [text];
 }
 
@@ -51,9 +53,10 @@ export async function parseChunkWithGemini(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
-  apiKey: string
+  apiKey: string,
+  modelName: string = 'gemini-2.5-flash'
 ): Promise<any[]> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const prompt = `
 You are an expert financial data extraction system. Extract EVERY SINGLE transaction from this portion of a bank/credit card statement (chunk ${chunkIndex + 1} of ${totalChunks}). Do NOT skip any — missing even one is a critical failure.
@@ -181,9 +184,10 @@ export async function parseBankStatementWithGemini(
  */
 export async function parseSalarySlipWithGemini(
   text: string,
-  apiKey: string
+  apiKey: string,
+  modelName: string = 'gemini-2.5-flash'
 ): Promise<SalarySlip> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const prompt = `
 You are an expert financial analyzer. Parse the following salary slip text and extract the salary components.

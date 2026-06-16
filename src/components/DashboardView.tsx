@@ -932,12 +932,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (hasAutoSelected.current) return;
     if (transactions.length === 0) return;
-    const allMonths = [...new Set(transactions.map(tx => tx.date.slice(0, 7)))].sort().reverse();
+    // Filter out invalid/malformed months
+    const allMonths = [...new Set(transactions.map(tx => {
+      const dStr = tx.date;
+      if (typeof dStr === 'string' && dStr.includes('-')) {
+        const parts = dStr.split('-');
+        if (parts.length === 3 && parts[0].length === 4 && parts[1].length === 2) {
+          return `${parts[0]}-${parts[1]}`;
+        }
+      }
+      return '';
+    }).filter(m => m !== ''))].sort().reverse();
+
     if (allMonths.length === 0) return;
     const [year, month] = allMonths[0].split('-');
-    setSelYear(year);
-    setSelMonth(month);
-    hasAutoSelected.current = true;
+    if (year && month && !isNaN(parseInt(year)) && !isNaN(parseInt(month))) {
+      setSelYear(year);
+      setSelMonth(month);
+      hasAutoSelected.current = true;
+    }
   }, [transactions]);
 
   // ── Derived: available years ──────────────────────────────────────────────
@@ -971,8 +984,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const periodLabel = useMemo(() => {
     if (selYear === 'all') return 'All Time';
     if (selMonth === 'all') return selYear;
-    if (selWeek === 'all') return `${MN[parseInt(selMonth)-1]} ${selYear}`;
-    return `${selWeek} · ${MN[parseInt(selMonth)-1]} ${selYear}`;
+    const idx = parseInt(selMonth) - 1;
+    const mName = (!isNaN(idx) && MN[idx]) ? MN[idx] : 'Unknown';
+    if (selWeek === 'all') return `${mName} ${selYear}`;
+    return `${selWeek} · ${mName} ${selYear}`;
   }, [selYear, selMonth, selWeek]);
 
   // ── Aggregates (all-time for net worth) ───────────────────────────────────

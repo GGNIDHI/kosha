@@ -197,15 +197,15 @@ export const SettingsView: React.FC = () => {
             <div className="provider-status-banner">
               <div className="provider-badge primary-provider">
                 <Zap size={14} />
-                <span><strong>Primary:</strong> Gemini 2.5 Flash</span>
+                <span><strong>Primary:</strong> Gemini 2.5 / 2.0</span>
               </div>
               <div className="provider-arrow"><RefreshCw size={12} /></div>
               <div className="provider-badge fallback-provider">
-                <span><strong>Fallback:</strong> Groq · Llama 3.3 70B</span>
+                <span><strong>Fallback:</strong> Groq · Llama 3.3 / 3.1</span>
               </div>
             </div>
             <p className="field-hint banner-hint">
-              If Gemini hits a quota or billing limit, Kosha automatically retries with Groq — no action needed from you.
+              If Gemini hits a quota or billing limit, Kosha automatically retries with Gemini 2.0 Flash, then falls back to Groq.
             </p>
 
             <div className="form-group">
@@ -228,7 +228,7 @@ export const SettingsView: React.FC = () => {
                 </button>
               </div>
               <p className="field-hint">
-                Get a free key from <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio</a>. Uses <strong>gemini-2.5-flash</strong>.
+                Get a free key from <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio</a>. Uses <strong>gemini-2.5-flash</strong> (with automatic fallback to <strong>gemini-2.0-flash</strong>).
               </p>
             </div>
 
@@ -252,7 +252,7 @@ export const SettingsView: React.FC = () => {
                 </button>
               </div>
               <p className="field-hint">
-                Optional but recommended. Get a <strong>free</strong> key from <a href="https://console.groq.com/" target="_blank" rel="noreferrer">console.groq.com</a>. Uses <strong>llama-3.3-70b-versatile</strong>.
+                Optional but recommended. Get a <strong>free</strong> key from <a href="https://console.groq.com/" target="_blank" rel="noreferrer">console.groq.com</a>. Uses <strong>llama-3.1-8b-instant</strong> for bank statements and <strong>llama-3.3-70b-versatile</strong> for slips.
               </p>
             </div>
 

@@ -9,7 +9,8 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
  */
 export async function parseBankStatementWithGroq(
   text: string,
-  apiKey: string
+  apiKey: string,
+  modelName: string = 'llama-3.1-8b-instant'
 ): Promise<Transaction[]> {
   const response = await fetch(GROQ_URL, {
     method: 'POST',
@@ -18,7 +19,7 @@ export async function parseBankStatementWithGroq(
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: modelName,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
@@ -73,7 +74,8 @@ Rules:
  */
 export async function parseSalarySlipWithGroq(
   text: string,
-  apiKey: string
+  apiKey: string,
+  modelName: string = 'llama-3.3-70b-versatile'
 ): Promise<SalarySlip> {
   const response = await fetch(GROQ_URL, {
     method: 'POST',
@@ -82,7 +84,7 @@ export async function parseSalarySlipWithGroq(
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: modelName,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [

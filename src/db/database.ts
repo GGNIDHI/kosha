@@ -238,56 +238,95 @@ export async function autoRepairTransactionDates(): Promise<number> {
   const transactions = await db.transactions.toArray();
   const toUpdate: Transaction[] = [];
 
-  const pdfGroups = new Map<string, Transaction[]>();
-  const nonPdfTxs: Transaction[] = [];
+  const parseAndRepairDate = (dateStr: any): string | null => {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    dateStr = dateStr.trim();
+    if (
+      dateStr.toLowerCase() === 'undefined' ||
+      dateStr.toLowerCase() === 'null' ||
+      dateStr.toLowerCase() === 'nan' ||
+      dateStr === ''
+    ) {
+      return null;
+    }
+
+    // Replace any slashes with dashes
+    let normalized = dateStr.replace(/\//g, '-');
+
+    // Let's split by '-'
+    const parts = normalized.split('-');
+    if (parts.length !== 3) {
+      // Try standard JS Date parsing if format is different
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return null;
+    }
+
+    let y = parts[0];
+    let m = parts[1];
+    let d = parts[2];
+
+    // Case A: 4-digit year at the end: DD-MM-YYYY or MM-DD-YYYY
+    if (d.length === 4) {
+      const tempY = d;
+      const tempM = m;
+      const tempD = y;
+      y = tempY;
+      m = tempM;
+      d = tempD;
+    }
+
+    // At this point, y should be the 4-digit year. If not, it's invalid
+    if (y.length !== 4) {
+      const dObj = new Date(dateStr);
+      if (!isNaN(dObj.getTime())) {
+        const yyyy = dObj.getFullYear();
+        const mm = String(dObj.getMonth() + 1).padStart(2, '0');
+        const dd = String(dObj.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return null;
+    }
+
+    let yearNum = parseInt(y);
+    let monthNum = parseInt(m);
+    let dayNum = parseInt(d);
+
+    if (isNaN(yearNum) || isNaN(monthNum) || isNaN(dayNum)) {
+      return null;
+    }
+
+    // Handle swapped month/day: if month is > 12 and day <= 12, swap them
+    if (monthNum > 12 && dayNum <= 12) {
+      const tmp = monthNum;
+      monthNum = dayNum;
+      dayNum = tmp;
+    }
+
+    // Ensure months and days are within bounds
+    if (monthNum < 1 || monthNum > 12) {
+      monthNum = 1; // default to January
+    }
+    if (dayNum < 1 || dayNum > 31) {
+      dayNum = 1; // default to 1st
+    }
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${yearNum}-${pad(monthNum)}-${pad(dayNum)}`;
+  };
+
+  const fallbackDate = new Date().toISOString().split('T')[0];
 
   for (const tx of transactions) {
-    if (tx.pdfSourceId) {
-      const list = pdfGroups.get(tx.pdfSourceId) || [];
-      list.push(tx);
-      pdfGroups.set(tx.pdfSourceId, list);
-    } else {
-      nonPdfTxs.push(tx);
-    }
-  }
-
-  const isSwappedDate = (dateStr: string) => {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      const month = parseInt(parts[1]);
-      return month > 12;
-    }
-    return false;
-  };
-
-  const swapMonthAndDay = (dateStr: string) => {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      const y = parts[0];
-      const d = parts[1];
-      const m = parts[2];
-      const pad = (s: string) => s.padStart(2, '0');
-      return `${y}-${pad(m)}-${pad(d)}`;
-    }
-    return dateStr;
-  };
-
-  for (const txList of pdfGroups.values()) {
-    const hasAnySwapped = txList.some(tx => isSwappedDate(tx.date));
-    if (hasAnySwapped) {
-      for (const tx of txList) {
-        const repairedDate = swapMonthAndDay(tx.date);
-        if (repairedDate !== tx.date) {
-          toUpdate.push({ ...tx, date: repairedDate });
-        }
-      }
-    }
-  }
-
-  for (const tx of nonPdfTxs) {
-    if (isSwappedDate(tx.date)) {
-      const repairedDate = swapMonthAndDay(tx.date);
-      toUpdate.push({ ...tx, date: repairedDate });
+    const repaired = parseAndRepairDate(tx.date);
+    const expected = repaired || fallbackDate;
+    if (tx.date !== expected) {
+      toUpdate.push({ ...tx, date: expected });
     }
   }
 

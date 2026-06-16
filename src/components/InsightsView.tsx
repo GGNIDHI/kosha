@@ -105,9 +105,9 @@ export const InsightsView: React.FC = () => {
     try {
       const context = buildContext();
       let resultText = '';
-      let provider: 'gemini' | 'groq' = 'gemini';
+      let activeModelLabel = 'Gemini 2.5 Flash';
 
-      const runWithGemini = async () => {
+      const runWithGemini = async (modelName: string) => {
         const body = {
           contents: [
             { role: 'user', parts: [{ text: `${INSIGHT_SYSTEM_PROMPT}\n\nFinancial Data:\n${context}` }] }
@@ -116,7 +116,7 @@ export const InsightsView: React.FC = () => {
         };
 
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         );
 
@@ -136,15 +136,26 @@ export const InsightsView: React.FC = () => {
 
       if (apiKey) {
         try {
-          setLoadingText('Gemini is reading your financial data and crafting insights...');
-          resultText = await runWithGemini();
-          provider = 'gemini';
+          setLoadingText('Gemini 2.5 Flash is reading your financial data...');
+          resultText = await runWithGemini('gemini-2.5-flash');
+          activeModelLabel = 'Gemini 2.5 Flash';
         } catch (geminiErr: any) {
-          if (groqApiKey && isGeminiFallbackError(geminiErr)) {
-            setLoadingText('Gemini limit reached — switching to Groq (Llama 3.3 70B)...');
-            console.warn('Gemini failed, falling back to Groq:', geminiErr.message);
-            resultText = await runWithGroq();
-            provider = 'groq';
+          if (isGeminiFallbackError(geminiErr)) {
+            try {
+              setLoadingText('Gemini 2.5 limit reached — switching to Gemini 2.0 Flash...');
+              console.warn('Gemini 2.5 failed, falling back to Gemini 2.0:', geminiErr.message);
+              resultText = await runWithGemini('gemini-2.0-flash');
+              activeModelLabel = 'Gemini 2.0 Flash';
+            } catch (gemini2Err: any) {
+              if (groqApiKey && isGeminiFallbackError(gemini2Err)) {
+                setLoadingText('Gemini limit reached — switching to Groq (Llama 3.3 70B)...');
+                console.warn('Gemini 2.0 failed, falling back to Groq:', gemini2Err.message);
+                resultText = await runWithGroq();
+                activeModelLabel = 'Groq · Llama 3.3';
+              } else {
+                throw gemini2Err;
+              }
+            }
           } else {
             throw geminiErr;
           }
@@ -152,7 +163,7 @@ export const InsightsView: React.FC = () => {
       } else {
         setLoadingText('Groq is reading your financial data and crafting insights...');
         resultText = await runWithGroq();
-        provider = 'groq';
+        activeModelLabel = 'Groq · Llama 3.3';
       }
 
       const match = resultText.match(/\{[\s\S]*\}/);
@@ -162,8 +173,8 @@ export const InsightsView: React.FC = () => {
       const at = new Date().toLocaleString('en-IN');
       setInsights(list);
       setLastUpdated(at);
-      setProviderUsed(provider);
-      await db.settings.put({ key: 'cachedInsights', value: { insights: list, at, provider } });
+      setProviderUsed(activeModelLabel as any);
+      await db.settings.put({ key: 'cachedInsights', value: { insights: list, at, provider: activeModelLabel } });
     } catch (e: any) {
       setError(e.message ?? 'Unknown error');
     } finally {
@@ -190,7 +201,7 @@ export const InsightsView: React.FC = () => {
           <RefreshCw size={13} /> Last updated: {lastUpdated}
           {providerUsed && (
             <span className="provider-tag">
-              via {providerUsed === 'groq' ? 'Groq (Llama 3.3)' : 'Gemini 2.5 Flash'}
+              via {providerUsed === 'groq' ? 'Groq (Llama 3.3)' : (providerUsed === 'gemini' ? 'Gemini 2.5 Flash' : providerUsed)}
             </span>
           )}
         </div>
