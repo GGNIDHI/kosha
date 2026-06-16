@@ -167,23 +167,13 @@ export const PdfParserView: React.FC = () => {
         queue.push({ provider: 'gemini', model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' });
       }
       if (groqApiKey) {
-        if (activeTab === 'bank') {
-          queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
-          queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
-        } else {
-          queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
-          queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
-        }
+        queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
+        queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
       }
     } else {
       if (groqApiKey) {
-        if (activeTab === 'bank') {
-          queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
-          queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
-        } else {
-          queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
-          queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
-        }
+        queue.push({ provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' });
+        queue.push({ provider: 'groq', model: 'llama-3.1-8b-instant', label: 'Groq Llama 3.1 8B' });
       }
       if (apiKey) {
         queue.push({ provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' });
@@ -195,6 +185,7 @@ export const PdfParserView: React.FC = () => {
     let accumulatedTxs = [...initialTxs];
     let accumulatedSlip = initialSlip;
     const totalPages = pages.length;
+    let lockedProvider: LlmProvider | null = startIndex > 0 ? provider : null;
 
     setResumeAvailable(false);
 
@@ -222,8 +213,8 @@ export const PdfParserView: React.FC = () => {
 
         const currentConfig = queue[queueIndex] || { 
           provider, 
-          model: provider === 'gemini' ? 'gemini-2.5-flash' : (activeTab === 'bank' ? 'llama-3.1-8b-instant' : 'llama-3.3-70b-versatile'),
-          label: provider === 'gemini' ? 'Gemini 2.5 Flash' : (activeTab === 'bank' ? 'Groq Llama 3.1 8B' : 'Groq Llama 3.3 70B') 
+          model: provider === 'gemini' ? 'gemini-2.5-flash' : 'llama-3.3-70b-versatile',
+          label: provider === 'gemini' ? 'Gemini 2.5 Flash' : 'Groq Llama 3.3 70B' 
         };
         const providerLabel = currentConfig.label;
         setLoadingStep(`Analyzing Page ${i + 1} of ${totalPages} with ${providerLabel}...`);
@@ -259,6 +250,7 @@ export const PdfParserView: React.FC = () => {
             }
           }
           success = true;
+          lockedProvider = currentConfig.provider;
         } catch (err: any) {
           const isRateLimit = isGeminiFallbackError(err) || err.message?.includes('429') || err.message?.includes('limit');
           
@@ -271,6 +263,13 @@ export const PdfParserView: React.FC = () => {
             // Check if fallback is available in our queue
             if (isRateLimit && queueIndex + 1 < queue.length) {
               const nextConfig = queue[queueIndex + 1];
+              
+              // Do not switch providers midway through the document to ensure consistency
+              if (lockedProvider && nextConfig.provider !== lockedProvider) {
+                setResumeAvailable(true);
+                throw new Error(`${lockedProvider === 'gemini' ? 'Gemini' : 'Groq'} rate limit hit on Page ${i + 1}. To maintain consistency, we did not switch to the other engine midway. Please restart parsing fresh using ${lockedProvider === 'gemini' ? 'Groq' : 'Gemini'}.`);
+              }
+
               setLoadingStep(`Quota/Limit hit on ${providerLabel} — switching to ${nextConfig.label}...`);
               console.warn(`${currentConfig.label} failed on Page ${i + 1}, falling back to ${nextConfig.label}:`, err.message);
               queueIndex++;
