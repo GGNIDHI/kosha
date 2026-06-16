@@ -163,7 +163,7 @@ const RecurringPopup: React.FC<RecurringPopupProps> = ({ description, allTransac
 };
 
 interface MeterDetailModalProps {
-  type: 'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax';
+  type: 'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income';
   onClose: () => void;
   periodTxs: Transaction[];
   transactions: Transaction[];
@@ -246,6 +246,90 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
 
   const renderContent = () => {
     switch (type) {
+      case 'income': {
+        const allCredits = periodTxs.filter(tx => tx.type === 'credit');
+        const creditsSorted = [...allCredits].sort((a, b) => b.date.localeCompare(a.date));
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Total Income</span>
+                <span className="popup-stat-value text-success">{formatAmount(periodIncome, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Bank Credits</span>
+                <span className="popup-stat-value text-success">
+                  {formatAmount(allCredits.filter(tx => !reconciledTxIds.has(tx.id!)).reduce((s, tx) => s + tx.amount, 0), currency)}
+                </span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Salary Slips ({periodSlips.length})</span>
+                <span className="popup-stat-value text-success">
+                  {formatAmount(periodSlips.reduce((s, slip) => s + slip.netPay, 0), currency)}
+                </span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Income Calculation Rules</div>
+            <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              💡 Total Income includes all unique bank credits (inflows) and net take-home salary from your salary slips. Reconciled bank credits matched to salary slips are struck out to prevent double-counting.
+            </p>
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">Salary Slips Summary</div>
+                <div className="breakdown-list">
+                  {periodSlips.length === 0 ? (
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No salary slips parsed for this period.</span>
+                  ) : (
+                    periodSlips.map((slip, idx) => (
+                      <div key={idx} className="breakdown-item" style={{ padding: '8px 12px' }}>
+                        <span className="breakdown-name">
+                          Slip for {MN[slip.month - 1]} {slip.year}
+                        </span>
+                        <span className="breakdown-value text-success">+{formatAmount(slip.netPay, currency)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">All Bank Credits</div>
+                <div className="popup-table-wrap" style={{ maxHeight: '200px' }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {creditsSorted.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: 'center' }}>No bank credits for this period.</td></tr>
+                      ) : (
+                        creditsSorted.map((tx, idx) => {
+                          const isReconciled = reconciledTxIds.has(tx.id!);
+                          return (
+                            <tr key={idx} style={isReconciled ? { opacity: 0.4 } : undefined}>
+                              <td style={isReconciled ? { textDecoration: 'line-through' } : undefined}>{tx.date}</td>
+                              <td style={isReconciled ? { textDecoration: 'line-through' } : undefined} className="truncate" title={tx.description}>
+                                {tx.description}
+                              </td>
+                              <td className="amt-cell text-success" style={isReconciled ? { textDecoration: 'line-through' } : undefined}>
+                                +{formatAmount(tx.amount, currency)}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+
       case 'expense': {
         const categoriesMap: Record<string, number> = {};
         const debitTxs = periodTxs.filter(tx => tx.type === 'debit');
@@ -822,7 +906,8 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
     investment: 'Investment Rate Detail Analysis',
     budget: 'Budget Compliance Detail Analysis',
     debt: 'Debt-to-Income Detail Analysis',
-    tax: 'Tax Rate Detail Analysis'
+    tax: 'Tax Rate Detail Analysis',
+    income: 'Income Detail Analysis'
   };
 
   const subtitles = {
@@ -831,7 +916,8 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
     investment: 'Summary of ledger investments and EPF deductions',
     budget: 'Breakdown of set limits vs actual category expenditures',
     debt: 'EMIs and monthly financial obligations compared to inflows',
-    tax: 'Aggregate details of salary TDS and general tax transactions against income'
+    tax: 'Aggregate details of salary TDS and general tax transactions against income',
+    income: 'Breakdown of unique bank credits and salary slip take-home pay'
   };
 
   return (
@@ -856,7 +942,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [currency, setCurrency] = useState('INR');
   const [recurringPopup, setRecurringPopup] = useState<string | null>(null);
-  const [activeMeterDetail, setActiveMeterDetail] = useState<'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | null>(null);
+  const [activeMeterDetail, setActiveMeterDetail] = useState<'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income' | null>(null);
   const [mappings, setMappings] = useState<SalarySlipMapping[]>([]);
 
   // ── Period Selector State ─────────────────────────────────────────────────
@@ -1450,21 +1536,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
       {/* ── Period Summary Cards ─────────────────────────────────────────── */}
       <div className="stats-row">
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => setActiveMeterDetail('income')}>
           <div className="stat-card-header">
             <span className="stat-label">Income · {periodLabel}</span>
             <div className="stat-icon-wrapper success-bg"><ArrowDownLeft size={16} className="success-color" /></div>
           </div>
           <span className="stat-value">{formatAmount(periodIncome, currency)}</span>
         </div>
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => setActiveMeterDetail('expense')}>
           <div className="stat-card-header">
             <span className="stat-label">Expenses · {periodLabel}</span>
             <div className="stat-icon-wrapper danger-bg"><ArrowUpRight size={16} className="danger-color" /></div>
           </div>
           <span className="stat-value">{formatAmount(periodExpenses, currency)}</span>
         </div>
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => setActiveMeterDetail('savings')}>
           <div className="stat-card-header">
             <span className="stat-label">Savings Rate · {periodLabel}</span>
             <div className="stat-icon-wrapper primary-bg"><PiggyBank size={16} className="primary-color" /></div>
@@ -1901,7 +1987,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
         @media (max-width: 700px) { .stats-row { grid-template-columns: 1fr; } }
 
-        .stat-card { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .stat-card { padding: 20px; display: flex; flex-direction: column; gap: 12px; cursor: pointer; transition: var(--transition-smooth); }
+        .stat-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.08); box-shadow: 0 8px 16px rgba(0,0,0,0.25); }
         .stat-card-header { display: flex; justify-content: space-between; align-items: center; }
         .stat-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
         .stat-icon-wrapper { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
