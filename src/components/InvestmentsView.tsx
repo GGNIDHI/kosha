@@ -3,7 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { Investment } from '../db/database';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
-import { TrendingUp, FileUp, Plus, Trash2, ArrowUpRight, ArrowDownLeft, PieChart as PieChartIcon, X } from 'lucide-react';
+import { TrendingUp, FileUp, Plus, Trash2, ArrowUpRight, ArrowDownLeft, PieChart as PieChartIcon, X, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export const InvestmentsView: React.FC = () => {
   const [showAddForm, setShowAddForm] = useState(false);
@@ -13,76 +14,203 @@ export const InvestmentsView: React.FC = () => {
   const [currentPrice, setCurrentPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // File Upload & Parser Review states
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [parsingStatus, setParsingStatus] = useState<'idle' | 'reading' | 'success' | 'error' | 'imported'>('idle');
+  const [parsedInvestments, setParsedInvestments] = useState<Investment[]>([]);
+  const [parsingError, setParsingError] = useState<string | null>(null);
+
   // Fetch investments from database
   const investments = useLiveQuery(() => db.investments.toArray(), []) || [];
 
-  // Parse CSV file exported from Zerodha Console/Holdings
-  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Parse CSV/XLSX file exported from Zerodha Console/Holdings
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setSelectedFile(file);
+    setParsingStatus('reading');
+    setParsingError(null);
+    setParsedInvestments([]);
+
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = event.target?.result as string;
-        const lines = text.split('\n');
-        
-        if (lines.length < 2) {
-          throw new Error('CSV file is empty or has invalid headers.');
-        }
+        let newInvestments: Investment[] = [];
 
-        const newInvestments: Investment[] = [];
-        // Detect headers
-        const headers = lines[0].toLowerCase().split(',');
-        const symbolIdx = headers.findIndex(h => h.includes('symbol') || h.includes('instrument') || h.includes('ticker'));
-        const qtyIdx = headers.findIndex(h => h.includes('qty') || h.includes('quantity') || h.includes('shares'));
-        const avgIdx = headers.findIndex(h => h.includes('avg') || h.includes('average') || h.includes('cost') || h.includes('price'));
-        const ltpIdx = headers.findIndex(h => h.includes('ltp') || h.includes('last price') || h.includes('current price'));
-
-        if (symbolIdx === -1 || qtyIdx === -1 || avgIdx === -1) {
-          throw new Error('Required CSV columns (Symbol/Instrument, Qty, Avg Cost) not found.');
-        }
-
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-
-          // Simple CSV line splitter that handles quotes correctly if they exist
-          const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        if (isExcel) {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
           
-          const sym = cols[symbolIdx]?.replace(/"/g, '').trim().toUpperCase();
-          const qty = parseFloat(cols[qtyIdx]?.replace(/"/g, '').trim());
-          const avg = parseFloat(cols[avgIdx]?.replace(/"/g, '').trim());
-          const ltp = ltpIdx !== -1 ? parseFloat(cols[ltpIdx]?.replace(/"/g, '').trim()) : undefined;
+          let worksheet = null;
+          let sheetRows: any[][] = [];
+          let symbolIdx = -1;
+          let qtyIdx = -1;
+          let avgIdx = -1;
+          let ltpIdx = -1;
+          let headerRowIdx = -1;
 
-          if (sym && !isNaN(qty) && !isNaN(avg)) {
-            newInvestments.push({
-              id: sym,
-              symbol: sym,
-              quantity: qty,
-              avgCost: avg,
-              currentPrice: !isNaN(ltp as number) ? ltp : avg, // Default to avg cost if current price is missing
-              lastUpdated: new Date().toISOString()
-            });
+          // Scan all sheets in the workbook to locate the holdings table
+          for (const sheetName of workbook.SheetNames) {
+            const tempWorksheet = workbook.Sheets[sheetName];
+            const tempRows = XLSX.utils.sheet_to_json<any[]>(tempWorksheet, { header: 1 });
+            if (tempRows.length < 2) continue;
+
+            // Search the first 40 rows for header indicators dynamically
+            for (let r = 0; r < Math.min(tempRows.length, 40); r++) {
+              const row = tempRows[r];
+              if (!row || !Array.isArray(row)) continue;
+
+              const candidateHeaders = row.map(h => String(h || '').toLowerCase().trim());
+              const sym = candidateHeaders.findIndex(h => h.includes('symbol') || h.includes('instrument') || h.includes('ticker') || h.includes('stock') || h === 'isin');
+              const qty = candidateHeaders.findIndex(h => h.includes('qty') || h.includes('quantity') || h.includes('shares') || h.includes('holding') || h.includes('volume'));
+              const avg = candidateHeaders.findIndex(h => h.includes('avg') || h.includes('average') || h.includes('cost') || h.includes('price') || h.includes('buy price') || h.includes('rate'));
+              const ltp = candidateHeaders.findIndex(h => h.includes('ltp') || h.includes('last price') || h.includes('current price'));
+
+              if (sym !== -1 && qty !== -1 && avg !== -1) {
+                symbolIdx = sym;
+                qtyIdx = qty;
+                avgIdx = avg;
+                ltpIdx = ltp;
+                headerRowIdx = r;
+                worksheet = tempWorksheet;
+                sheetRows = tempRows;
+                break;
+              }
+            }
+            if (worksheet) break; // Found the correct sheet
+          }
+
+          if (!worksheet || headerRowIdx === -1) {
+            throw new Error('Required columns (Symbol/Instrument, Qty, Avg Cost) not found in Excel sheet. Please ensure it is a valid Zerodha holdings export.');
+          }
+
+          for (let i = headerRowIdx + 1; i < sheetRows.length; i++) {
+            const row = sheetRows[i];
+            if (!row || row.length === 0) continue;
+
+            const sym = String(row[symbolIdx] || '').replace(/"/g, '').trim().toUpperCase();
+            if (!sym) continue;
+
+            const qty = parseFloat(String(row[qtyIdx] || '').replace(/"/g, '').trim());
+            const avg = parseFloat(String(row[avgIdx] || '').replace(/"/g, '').trim());
+            const ltpVal = ltpIdx !== -1 ? String(row[ltpIdx] || '').replace(/"/g, '').trim() : '';
+            const ltp = ltpVal ? parseFloat(ltpVal) : undefined;
+
+            if (sym && !isNaN(qty) && !isNaN(avg)) {
+              newInvestments.push({
+                id: sym,
+                symbol: sym,
+                quantity: qty,
+                avgCost: avg,
+                currentPrice: !isNaN(ltp as number) ? ltp : avg,
+                lastUpdated: new Date().toISOString()
+              });
+            }
+          }
+        } else {
+          const text = event.target?.result as string;
+          const lines = text.split('\n');
+          
+          if (lines.length < 2) {
+            throw new Error('CSV file is empty.');
+          }
+
+          let symbolIdx = -1;
+          let qtyIdx = -1;
+          let avgIdx = -1;
+          let ltpIdx = -1;
+          let headerRowIdx = -1;
+
+          // Scan the first 40 rows of CSV dynamically
+          for (let r = 0; r < Math.min(lines.length, 40); r++) {
+            const line = lines[r].trim();
+            if (!line) continue;
+
+            const candidateHeaders = line.toLowerCase().split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/"/g, '').trim());
+            const sym = candidateHeaders.findIndex(h => h.includes('symbol') || h.includes('instrument') || h.includes('ticker') || h.includes('stock') || h === 'isin');
+            const qty = candidateHeaders.findIndex(h => h.includes('qty') || h.includes('quantity') || h.includes('shares') || h.includes('holding') || h.includes('volume'));
+            const avg = candidateHeaders.findIndex(h => h.includes('avg') || h.includes('average') || h.includes('cost') || h.includes('price') || h.includes('buy price') || h.includes('rate'));
+            const ltp = candidateHeaders.findIndex(h => h.includes('ltp') || h.includes('last price') || h.includes('current price'));
+
+            if (sym !== -1 && qty !== -1 && avg !== -1) {
+              symbolIdx = sym;
+              qtyIdx = qty;
+              avgIdx = avg;
+              ltpIdx = ltp;
+              headerRowIdx = r;
+              break;
+            }
+          }
+
+          if (headerRowIdx === -1) {
+            throw new Error('Required CSV columns (Symbol/Instrument, Qty, Avg Cost) not found.');
+          }
+
+          for (let i = headerRowIdx + 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+            
+            const sym = cols[symbolIdx]?.replace(/"/g, '').trim().toUpperCase();
+            const qty = parseFloat(cols[qtyIdx]?.replace(/"/g, '').trim());
+            const avg = parseFloat(cols[avgIdx]?.replace(/"/g, '').trim());
+            const ltp = ltpIdx !== -1 ? parseFloat(cols[ltpIdx]?.replace(/"/g, '').trim()) : undefined;
+
+            if (sym && !isNaN(qty) && !isNaN(avg)) {
+              newInvestments.push({
+                id: sym,
+                symbol: sym,
+                quantity: qty,
+                avgCost: avg,
+                currentPrice: !isNaN(ltp as number) ? ltp : avg,
+                lastUpdated: new Date().toISOString()
+              });
+            }
           }
         }
 
         if (newInvestments.length === 0) {
-          throw new Error('No valid stock records found in the CSV.');
+          throw new Error('No valid stock positions found in this statement.');
         }
 
-        // Overwrite or append? Let's overwrite holdings to keep it fresh
-        await db.investments.clear();
-        await db.investments.bulkAdd(newInvestments);
-        
-        // Also add investment event log in transaction ledger (Optional: but keeping database synced is nice)
-        alert(`Successfully imported ${newInvestments.length} holdings from Zerodha CSV!`);
+        setParsedInvestments(newInvestments);
+        setParsingStatus('success');
       } catch (err: any) {
         console.error(err);
-        setError(err?.message || 'Failed to parse CSV file.');
+        setParsingError(err?.message || 'Failed to parse portfolio file.');
+        setParsingStatus('error');
       }
     };
-    reader.readAsText(file);
+
+    if (isExcel) {
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (parsedInvestments.length === 0) return;
+    try {
+      await db.investments.clear();
+      await db.investments.bulkAdd(parsedInvestments);
+      setParsingStatus('imported'); // SUCCESS STATE INDICATION
+    } catch (err: any) {
+      setParsingError(err?.message || 'Failed to write holdings to database.');
+      setParsingStatus('error');
+    }
+  };
+
+  const handleCancelImport = () => {
+    setSelectedFile(null);
+    setParsingStatus('idle');
+    setParsedInvestments([]);
+    setParsingError(null);
   };
 
   const handleManualAdd = async (e: React.FormEvent) => {
@@ -158,22 +286,24 @@ export const InvestmentsView: React.FC = () => {
           <h1>Investments</h1>
           <p>Track your stock holdings, average costs, and portfolio asset allocation.</p>
         </div>
-        <div className="header-actions">
-          <label className="btn btn-secondary cursor-pointer">
-            <FileUp size={18} />
-            <span>Import Zerodha CSV</span>
-            <input 
-              type="file" 
-              accept=".csv" 
-              className="display-none"
-              onChange={handleCsvUpload}
-            />
-          </label>
-          <button className="btn btn-primary" onClick={() => setShowAddForm(true)}>
-            <Plus size={18} />
-            <span>Add Asset</span>
-          </button>
-        </div>
+        {investments.length > 0 && (
+          <div className="header-actions">
+            <label className="btn btn-secondary cursor-pointer">
+              <FileUp size={18} />
+              <span>Import Zerodha CSV/Excel</span>
+              <input 
+                type="file" 
+                accept=".csv,.xlsx,.xls" 
+                className="display-none"
+                onChange={handleFileChange}
+              />
+            </label>
+            <button className="btn btn-primary" onClick={() => setShowAddForm(true)}>
+              <Plus size={18} />
+              <span>Add Asset</span>
+            </button>
+          </div>
+        )}
       </header>
 
       {error && (
@@ -252,24 +382,214 @@ export const InvestmentsView: React.FC = () => {
         </div>
       )}
 
+      {/* Import Review Modal Overlay */}
+      {selectedFile && (
+        <div className="drawer-overlay" onClick={handleCancelImport}>
+          <div className="glass-card drawer-content" onClick={(e) => e.stopPropagation()} style={{ width: '460px' }}>
+            <div className="drawer-header">
+              <h3>Import Portfolio</h3>
+              <button className="btn-close" onClick={handleCancelImport}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {parsingStatus !== 'imported' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-glass)' }}>
+                    <FileSpreadsheet size={24} style={{ color: parsingStatus === 'success' ? 'var(--secondary)' : parsingStatus === 'error' ? 'var(--danger)' : 'var(--text-muted)' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {selectedFile.name}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {(selectedFile.size / 1024).toFixed(1)} KB
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {parsingStatus === 'reading' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '24px 0' }}>
+                    <div className="glow-active" style={{ width: '36px', height: '36px', borderRadius: '50%', border: '3px solid var(--border-glass)', borderTopColor: 'var(--secondary)', animation: 'spin 1s linear infinite' }} />
+                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Reading statement & detecting columns...</span>
+                  </div>
+                )}
+
+                {parsingStatus === 'success' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span style={{ color: 'var(--success)', fontWeight: 'bold' }}>✓</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--success)' }}>Data Parsed Successfully</span>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                          Detected <strong>{parsedInvestments.length}</strong> holdings ready to load.
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', fontSize: '0.8rem', color: 'var(--warning)', lineHeight: '1.4' }}>
+                      <strong>⚠️ Attention:</strong> Confirming this import will clear your current stock holdings portfolio list and replace it with the records in this statement.
+                    </div>
+                  </div>
+                )}
+
+                {parsingStatus === 'imported' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '24px 0', textAlign: 'center' }}>
+                    <div style={{
+                      width: '60px',
+                      height: '60px',
+                      borderRadius: '50%',
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      border: '2px solid var(--success)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--success)',
+                      boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)',
+                      animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
+                    }}>
+                      <span style={{ fontSize: '2rem', lineHeight: 1 }}>✓</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <h4 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Import Complete</h4>
+                      <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                        Successfully loaded <strong>{parsedInvestments.length}</strong> stock positions into your holdings portfolio.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {parsingStatus === 'error' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>❌</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--danger)' }}>Import Failed</span>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
+                          {parsingError || 'Could not parse the file structure.'}
+                        </span>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      Please ensure you are uploading a standard holdings statement downloaded directly from <strong>Zerodha Console</strong>.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '24px' }}>
+                {parsingStatus === 'success' && (
+                  <button className="btn btn-primary btn-full" onClick={handleConfirmImport} style={{ margin: 0 }}>
+                    Confirm
+                  </button>
+                )}
+                {parsingStatus === 'imported' && (
+                  <button className="btn btn-primary btn-full" onClick={handleCancelImport} style={{ margin: 0 }}>
+                    Close
+                  </button>
+                )}
+                {parsingStatus === 'error' && (
+                  <label className="btn btn-primary btn-full cursor-pointer" style={{ margin: 0 }}>
+                    Choose Another File
+                    <input 
+                      type="file" 
+                      accept=".csv,.xlsx,.xls" 
+                      className="display-none"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                )}
+                {parsingStatus !== 'imported' && (
+                  <button className="btn btn-secondary btn-full" onClick={handleCancelImport} style={{ margin: 0 }}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {investments.length === 0 ? (
-        <div className="glass-card empty-state-card">
-          <TrendingUp size={48} className="empty-icon" />
-          <h3>No Holdings Tracked Yet</h3>
-          <p>
-            Upload a CSV exported from your Zerodha Console or add your stock positions manually to view your asset breakdown.
-          </p>
-          <div className="empty-actions">
-            <label className="btn btn-primary cursor-pointer">
-              <FileUp size={18} />
-              <span>Upload Zerodha CSV</span>
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1, justifyContent: 'center', minHeight: '50vh', marginTop: '16px' }}>
+          <div style={{ textAlign: 'center', maxWidth: '580px', margin: '0 auto' }}>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '8px' }}>Set Up Your Investment Portfolio</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: '1.6' }}>
+              Choose how you want to load your holdings. You can upload your Zerodha Console spreadsheet for auto-syncing, or log individual stock holdings manually.
+            </p>
+          </div>
+
+          <div className="investments-actions-grid" style={{ maxWidth: '860px', width: '100%', margin: '0 auto' }}>
+            {/* Import Action Card */}
+            <label className="glass-card action-card cursor-pointer">
+              <div className="action-icon-wrap bg-cyan-glow">
+                <FileSpreadsheet size={24} />
+              </div>
+              <h4>Import Zerodha Statement</h4>
+              <p>
+                Directly upload your holdings `.xlsx` spreadsheet or `.csv` export downloaded from Zerodha Console. Perfect for bulk setup.
+              </p>
+              
+              {/* Dashed dropzone / select area */}
+              <div className="upload-dropzone" style={{
+                width: '100%',
+                border: '1px dashed rgba(6, 182, 212, 0.3)',
+                borderRadius: '8px',
+                padding: '20px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                background: 'rgba(6, 182, 212, 0.02)',
+                transition: 'var(--transition-smooth)',
+                marginTop: '8px',
+                flexGrow: 1
+              }}>
+                <FileUp size={20} style={{ color: 'var(--secondary)' }} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Click to browse Excel or CSV</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Supports .xlsx, .xls, .csv</span>
+              </div>
               <input 
                 type="file" 
-                accept=".csv" 
+                accept=".csv,.xlsx,.xls" 
                 className="display-none"
-                onChange={handleCsvUpload}
+                onChange={handleFileChange}
               />
             </label>
+
+            {/* Manual Action Card */}
+            <div className="glass-card action-card cursor-pointer" onClick={() => setShowAddForm(true)}>
+              <div className="action-icon-wrap bg-purple-glow">
+                <Plus size={24} />
+              </div>
+              <h4>Add Holdings Manually</h4>
+              <p>
+                Manually enter stock symbols, quantities, and average purchase costs. Best for tracking customized assets.
+              </p>
+              
+              {/* Dashed clickzone area */}
+              <div className="manual-entry-zone" style={{
+                width: '100%',
+                border: '1px dashed rgba(139, 92, 246, 0.3)',
+                borderRadius: '8px',
+                padding: '20px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                background: 'rgba(139, 92, 246, 0.02)',
+                transition: 'var(--transition-smooth)',
+                marginTop: '8px',
+                flexGrow: 1
+              }}>
+                <Plus size={20} style={{ color: 'var(--primary)' }} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Click to open entry form</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Enter symbol, quantity, average price</span>
+              </div>
+            </div>
           </div>
         </div>
       ) : (

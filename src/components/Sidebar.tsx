@@ -145,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
           border-right: 1px solid var(--border-glass);
           display: flex;
           flex-direction: column;
-          padding: 20px 14px;
+          padding: 32px 16px 24px 16px;
           height: 100vh;
           position: sticky;
           top: 0;
@@ -157,18 +157,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
         .sidebar-brand {
           display: flex;
           align-items: center;
-          gap: 12px;
-          margin-bottom: 28px;
-          padding: 0 6px;
+          gap: 14px;
+          margin-bottom: 32px;
+          padding: 4px 8px;
           flex-shrink: 0;
         }
 
         .brand-logo {
-          width: 40px; height: 40px;
+          width: 42px; height: 42px;
           border-radius: var(--border-radius-md);
           overflow: hidden;
           flex-shrink: 0;
-          box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35), 0 0 0 1px rgba(139, 92, 246, 0.15);
+          transition: var(--transition-smooth);
+        }
+
+        .brand-logo:hover {
+          transform: rotate(5deg) scale(1.05);
+          box-shadow: 0 6px 18px rgba(139, 92, 246, 0.45), 0 0 0 2px rgba(139, 92, 246, 0.25);
         }
 
         .brand-logo-img {
@@ -178,61 +185,79 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
         }
 
         .brand-info h2 {
-          font-size: 1.2rem; font-weight: 700; line-height: 1.1;
+          font-size: 1.25rem; font-weight: 700; line-height: 1.1;
           background: linear-gradient(135deg, var(--text-primary) 30%, var(--text-secondary) 100%);
           -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
 
         .brand-info span { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
 
-        .sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+        .sidebar-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 
-        .nav-section { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+        .nav-section { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
 
         .nav-section-label {
-          font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
-          letter-spacing: 0.08em; color: var(--text-muted);
-          padding: 4px 10px; margin-bottom: 2px;
+          font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.1em; color: var(--text-muted);
+          padding: 6px 12px; margin-bottom: 4px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .nav-section-label::before {
+          content: '';
+          display: inline-block;
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: currentColor;
+          opacity: 0.5;
         }
 
         .nav-item {
           display: flex; align-items: center; gap: 10px;
-          padding: 9px 12px; border-radius: var(--border-radius-md);
+          padding: 10px 14px; border-radius: var(--border-radius-md);
           border: 1px solid transparent; background: transparent;
           color: var(--text-secondary); font-family: var(--font-body);
-          font-size: 0.88rem; font-weight: 500; cursor: pointer;
+          font-size: 0.9rem; font-weight: 500; cursor: pointer;
           position: relative; transition: var(--transition-smooth);
           text-align: left; width: 100%;
         }
 
         .nav-item:hover {
           color: var(--text-primary);
-          background: rgba(255, 255, 255, 0.03);
-          border-color: rgba(255, 255, 255, 0.02);
+          background: rgba(255, 255, 255, 0.04);
+          transform: translateX(4px);
         }
 
         .nav-item.active {
           color: var(--text-primary);
-          background: hsla(263, 90%, 65%, 0.08);
-          border-color: hsla(263, 90%, 65%, 0.15);
+          background: linear-gradient(90deg, hsla(263, 90%, 65%, 0.12) 0%, hsla(190, 95%, 50%, 0.03) 100%);
+          border-color: rgba(139, 92, 246, 0.2);
+          box-shadow: inset 0 0 12px rgba(139, 92, 246, 0.05);
         }
 
         .nav-icon { transition: var(--transition-smooth); flex-shrink: 0; }
-        .nav-item.active .nav-icon { color: var(--primary); }
+        .nav-item.active .nav-icon { 
+          color: var(--primary); 
+          filter: drop-shadow(0 0 6px var(--primary));
+        }
 
         .active-indicator {
-          position: absolute; right: 0; top: 10px; bottom: 10px;
-          width: 3px; background: var(--primary); border-radius: 4px 0 0 4px;
-          box-shadow: -2px 0 8px var(--primary);
+          position: absolute; left: 0; top: 10px; bottom: 10px;
+          width: 3px; background: var(--primary); border-radius: 0 4px 4px 0;
+          box-shadow: 2px 0 8px var(--primary);
         }
 
         .sidebar-footer {
+          margin-top: auto;
           padding-top: 14px; border-top: 1px solid var(--border-glass); flex-shrink: 0;
         }
 
         .footer-status {
           display: flex; align-items: center; gap: 8px;
-          padding: 6px; font-size: 0.75rem; color: var(--text-muted); font-weight: 500;
+          padding: 6px; font-size: 0.78rem; color: var(--text-muted); font-weight: 500;
         }
 
         .status-dot { width: 7px; height: 7px; border-radius: 50%; }

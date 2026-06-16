@@ -163,12 +163,13 @@ const RecurringPopup: React.FC<RecurringPopupProps> = ({ description, allTransac
 };
 
 interface MeterDetailModalProps {
-  type: 'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income';
+  type: 'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income' | 'net_worth';
   onClose: () => void;
   periodTxs: Transaction[];
   transactions: Transaction[];
   periodSlips: SalarySlip[];
   reconciledTxIds: Set<string>;
+  transferTxIds: Set<string>;
   currency: string;
   debts: Debt[];
   budgets: Budget[];
@@ -176,14 +177,20 @@ interface MeterDetailModalProps {
   periodExpenses: number;
   periodSavings: number;
   mappings: SalarySlipMapping[];
+  cashBalance: number;
+  portfolioValue: number;
+  allTimeSalaryInvestments: number;
+  salarySlips: SalarySlip[];
 }
 
 const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
   type,
   onClose,
   periodTxs,
+  transactions,
   periodSlips,
   reconciledTxIds,
+  transferTxIds,
   currency,
   debts,
   budgets,
@@ -191,6 +198,10 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
   periodExpenses,
   periodSavings,
   mappings,
+  cashBalance,
+  portfolioValue,
+  allTimeSalaryInvestments,
+  salarySlips,
 }) => {
 
   const pfForPeriod = useMemo(() => {
@@ -247,7 +258,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
   const renderContent = () => {
     switch (type) {
       case 'income': {
-        const allCredits = periodTxs.filter(tx => tx.type === 'credit');
+        const allCredits = periodTxs.filter(tx => tx.type === 'credit' && !tx.id?.startsWith('sal-'));
         const creditsSorted = [...allCredits].sort((a, b) => b.date.localeCompare(a.date));
 
         return (
@@ -260,7 +271,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
               <div className="popup-stat">
                 <span className="popup-stat-label">Bank Credits</span>
                 <span className="popup-stat-value text-success">
-                  {formatAmount(allCredits.filter(tx => !reconciledTxIds.has(tx.id!)).reduce((s, tx) => s + tx.amount, 0), currency)}
+                  {formatAmount(allCredits.filter(tx => !reconciledTxIds.has(tx.id!) && !transferTxIds.has(tx.id!)).reduce((s, tx) => s + tx.amount, 0), currency)}
                 </span>
               </div>
               <div className="popup-stat">
@@ -307,7 +318,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
                         <tr><td colSpan={3} style={{ textAlign: 'center' }}>No bank credits for this period.</td></tr>
                       ) : (
                         creditsSorted.map((tx, idx) => {
-                          const isReconciled = reconciledTxIds.has(tx.id!);
+                          const isReconciled = reconciledTxIds.has(tx.id!) || transferTxIds.has(tx.id!);
                           return (
                             <tr key={idx} style={isReconciled ? { opacity: 0.4 } : undefined}>
                               <td style={isReconciled ? { textDecoration: 'line-through' } : undefined}>{tx.date}</td>
@@ -408,7 +419,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
       }
 
       case 'savings': {
-        const allCredits = periodTxs.filter(tx => tx.type === 'credit');
+        const allCredits = periodTxs.filter(tx => tx.type === 'credit' && !tx.id?.startsWith('sal-'));
         const creditsSorted = [...allCredits].sort((a, b) => b.date.localeCompare(a.date));
 
         const totalSavingsSum = periodSavings + mappedSavings;
@@ -517,7 +528,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
                         <tr><td colSpan={3} style={{ textAlign: 'center' }}>No bank credits for this period.</td></tr>
                       ) : (
                         creditsSorted.map((tx, idx) => {
-                          const isReconciled = reconciledTxIds.has(tx.id!);
+                          const isReconciled = reconciledTxIds.has(tx.id!) || transferTxIds.has(tx.id!);
                           return (
                             <tr key={idx} style={isReconciled ? { opacity: 0.4 } : undefined}>
                               <td style={isReconciled ? { textDecoration: 'line-through' } : undefined}>{tx.date}</td>
@@ -895,6 +906,143 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
           </>
         );
       }
+      case 'net_worth': {
+        const netWorth = cashBalance + portfolioValue + allTimeSalaryInvestments;
+        
+        // Find all-time ledger investments (debits of category Investment that are not transfers)
+        const ledgerInvestments = transactions.filter(tx => 
+          tx.type === 'debit' && 
+          tx.category === 'Investment' && 
+          !transferTxIds.has(tx.id!)
+        );
+        const totalLedgerInvestments = ledgerInvestments.reduce((s, tx) => s + tx.amount, 0);
+
+        // Find individual mapped deductions/EPF items from all salary slips
+        const salaryInvestmentItems: { name: string; amount: number; dateLabel: string }[] = [];
+        salarySlips.forEach(slip => {
+          const dateLabel = `${MN[slip.month - 1]} ${slip.year}`;
+          if (slip.providentFund) {
+            salaryInvestmentItems.push({
+              name: 'Employee Provident Fund (EPF)',
+              amount: slip.providentFund,
+              dateLabel
+            });
+          }
+          slip.deductionsBreakdown?.forEach(d => {
+            const match = mappings.find(m => {
+              if (m.componentType !== 'deduction') return false;
+              const mapName = m.componentName.trim().toLowerCase();
+              const slipName = d.name.trim().toLowerCase();
+              return slipName.includes(mapName) || mapName.includes(slipName);
+            });
+            if (match && match.targetCategory === 'investment') {
+              salaryInvestmentItems.push({
+                name: d.name,
+                amount: d.amount,
+                dateLabel
+              });
+            }
+          });
+        });
+
+        return (
+          <>
+            <div className="popup-stats-row">
+              <div className="popup-stat">
+                <span className="popup-stat-label">Liquid Cash</span>
+                <span className="popup-stat-value text-primary">{formatAmount(cashBalance, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Portfolio Value</span>
+                <span className="popup-stat-value text-info">{formatAmount(portfolioValue, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Ledger Investments</span>
+                <span className="popup-stat-value" style={{ color: '#ec4899' }}>{formatAmount(totalLedgerInvestments, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Salary Assets</span>
+                <span className="popup-stat-value text-warning">{formatAmount(allTimeSalaryInvestments, currency)}</span>
+              </div>
+              <div className="popup-stat">
+                <span className="popup-stat-label">Net Worth</span>
+                <span className="popup-stat-value text-success">{formatAmount(netWorth, currency)}</span>
+              </div>
+            </div>
+
+            <div className="modal-section-title">Net Worth Equation</div>
+            <div className="formula-card">
+              <span className="formula-text">
+                Liquid Cash + Portfolio Value + Salary Slip Assets = Total Net Worth
+              </span>
+              <span className="formula-values">
+                {formatAmount(cashBalance, currency)} + {formatAmount(portfolioValue, currency)} + {formatAmount(allTimeSalaryInvestments, currency)} = {formatAmount(netWorth, currency)}
+              </span>
+            </div>
+
+            <div className="modal-split-grid">
+              <div className="split-col">
+                <div className="modal-section-title">Salary Assets (EPF & ESPP)</div>
+                <p className="no-data-text" style={{ marginBottom: '8px', fontSize: '0.74rem', padding: 0, textAlign: 'left', color: 'var(--text-muted)' }}>
+                  💡 These contributions are deducted directly from your salary slips and represent non-cash savings.
+                </p>
+                <div className="popup-table-wrap" style={{ maxHeight: '180px' }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Period</th><th>Asset Component</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {salaryInvestmentItems.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: 'center' }}>No salary investments recorded.</td></tr>
+                      ) : (
+                        salaryInvestmentItems.map((item, idx) => (
+                          <tr key={idx}>
+                            <td>{item.dateLabel}</td>
+                            <td>{item.name}</td>
+                            <td className="amt-cell text-success">+{formatAmount(item.amount, currency)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="split-col">
+                <div className="modal-section-title">Unreconciled Ledger Investments</div>
+                <p className="no-data-text" style={{ marginBottom: '8px', fontSize: '0.74rem', padding: 0, textAlign: 'left', color: 'var(--text-muted)' }}>
+                  💡 These are investment outflows from your bank statement not yet linked to manual/Zerodha stock holdings.
+                </p>
+                <div className="popup-table-wrap" style={{ maxHeight: '180px' }}>
+                  <table className="popup-table">
+                    <thead>
+                      <tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                      {ledgerInvestments.length === 0 ? (
+                        <tr><td colSpan={3} style={{ textAlign: 'center' }}>No bank investment transactions found.</td></tr>
+                      ) : (
+                        ledgerInvestments.map((tx, idx) => (
+                          <tr key={idx}>
+                            <td>{tx.date}</td>
+                            <td className="truncate" title={tx.description}>{tx.description}</td>
+                            <td className="amt-cell text-danger">−{formatAmount(tx.amount, currency)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {ledgerInvestments.length > 0 && (
+                  <p style={{ margin: '8px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Total bank investment outflows: <strong>{formatAmount(totalLedgerInvestments, currency)}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      }
       default:
         return null;
     }
@@ -907,7 +1055,8 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
     budget: 'Budget Compliance Detail Analysis',
     debt: 'Debt-to-Income Detail Analysis',
     tax: 'Tax Rate Detail Analysis',
-    income: 'Income Detail Analysis'
+    income: 'Income Detail Analysis',
+    net_worth: 'All Time Net Worth Detail Analysis'
   };
 
   const subtitles = {
@@ -917,12 +1066,13 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
     budget: 'Breakdown of set limits vs actual category expenditures',
     debt: 'EMIs and monthly financial obligations compared to inflows',
     tax: 'Aggregate details of salary TDS and general tax transactions against income',
-    income: 'Breakdown of unique bank credits and salary slip take-home pay'
+    income: 'Breakdown of unique bank credits and salary slip take-home pay',
+    net_worth: 'Comprehensive breakdown of liquid cash, portfolio holdings, and salary-deducted assets'
   };
 
   return (
     <div className="popup-overlay" onClick={onClose}>
-      <div className="popup-modal" style={{ maxWidth: '720px' }} onClick={e => e.stopPropagation()}>
+      <div className="popup-modal" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
         <div className="popup-header">
           <div>
             <h3 className="popup-title">{titles[type]}</h3>
@@ -942,7 +1092,7 @@ const MeterDetailModal: React.FC<MeterDetailModalProps> = ({
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [currency, setCurrency] = useState('INR');
   const [recurringPopup, setRecurringPopup] = useState<string | null>(null);
-  const [activeMeterDetail, setActiveMeterDetail] = useState<'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income' | null>(null);
+  const [activeMeterDetail, setActiveMeterDetail] = useState<'expense' | 'savings' | 'investment' | 'budget' | 'debt' | 'tax' | 'income' | 'net_worth' | null>(null);
   const [mappings, setMappings] = useState<SalarySlipMapping[]>([]);
 
   // ── Period Selector State ─────────────────────────────────────────────────
@@ -1370,6 +1520,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           transactions={transactions}
           periodSlips={periodSlips}
           reconciledTxIds={reconciledTxIds}
+          transferTxIds={transferTxIds}
           currency={currency}
           debts={debts}
           budgets={budgets}
@@ -1377,6 +1528,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           periodExpenses={periodExpenses}
           periodSavings={periodSavings}
           mappings={mappings}
+          cashBalance={cashBalance}
+          portfolioValue={portfolioValue}
+          allTimeSalaryInvestments={allTimeSalaryInvestments}
+          salarySlips={salarySlips}
         />
       )}
 
@@ -1456,7 +1611,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       )}
 
       {/* ── All Time Worth Banner (always all-time, not period-filtered) ──── */}
-      <div className="glass-card net-worth-banner">
+      <div className="glass-card net-worth-banner" onClick={() => setActiveMeterDetail('net_worth')} style={{ cursor: 'pointer' }}>
         <div className="banner-details">
           <div className="details-header">
             <PiggyBank size={24} className="banner-icon-piggy" />
@@ -1960,7 +2115,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         .net-worth-banner {
           background: linear-gradient(135deg, hsla(263,60%,8%,0.7) 0%, hsla(190,60%,8%,0.7) 100%), var(--bg-card);
           padding: 32px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px;
+          cursor: pointer; transition: var(--transition-smooth);
         }
+        .net-worth-banner:hover { transform: translateY(-2px); border-color: rgba(139,92,246,0.3); box-shadow: 0 8px 16px rgba(0,0,0,0.25); }
         .banner-details { display: flex; flex-direction: column; gap: 6px; }
         .details-header { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text-secondary); font-weight: 500; }
         .banner-alltime-tag {
@@ -1974,6 +2131,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           font-family: var(--font-heading); font-size: 2.5rem; font-weight: 800;
           background: linear-gradient(135deg, var(--text-primary) 30%, var(--secondary) 100%);
           -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+          white-space: nowrap;
         }
         .banner-details p { font-size: 0.85rem; color: var(--text-muted); }
         .banner-sub-stats { display: flex; gap: 24px; background: rgba(0,0,0,0.2); border-radius: var(--border-radius-md); padding: 16px 24px; }
@@ -2128,19 +2286,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         }
 
         .popup-stat {
-          flex: 1; padding: 14px 20px;
+          flex: 1; padding: 14px 12px;
           border-right: 1px solid rgba(255,255,255,0.07);
           display: flex; flex-direction: column; gap: 4px;
+          min-width: 0;
         }
         .popup-stat:last-child { border-right: none; }
         .popup-stat-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-        .popup-stat-value { font-size: 1.1rem; font-weight: 800; color: var(--text-primary); }
+        .popup-stat-value { font-size: 1.1rem; font-weight: 800; color: var(--text-primary); white-space: nowrap; }
 
         .popup-chart { padding: 16px 12px 0; }
 
         .popup-table-wrap {
           flex: 1; overflow-y: auto; padding: 0 24px 24px;
           margin-top: 12px;
+        }
+        .split-col .popup-table-wrap {
+          padding: 0;
+          margin-top: 4px;
         }
 
         .popup-table {
