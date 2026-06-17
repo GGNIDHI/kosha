@@ -7,7 +7,7 @@ import { InvestmentsView } from './components/InvestmentsView/InvestmentsView';
 import { BudgetsView } from './components/BudgetsView/BudgetsView';
 import { GoalsView } from './components/GoalsView/GoalsView';
 import { DebtView } from './components/DebtView/DebtView';
-import { InsightsView } from './components/InsightsView';
+import { InsightsView } from './components/InsightsView/InsightsView';
 import { TaxView } from './components/TaxView/TaxView';
 import { CsvImportView } from './components/CsvImportView/CsvImportView';
 import { CategoriesView } from './components/CategoriesView/CategoriesView';
@@ -21,14 +21,56 @@ import './App.css';
 function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [isInitialized, setIsInitialized] = useState<boolean | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
     async function checkInit() {
-      const initialized = await getSetting('hasBeenInitialized', false);
-      setIsInitialized(initialized);
+      try {
+        const initialized = await getSetting('hasBeenInitialized', false);
+        setIsInitialized(initialized);
+      } catch (err: any) {
+        console.error("Failed to initialize database:", err);
+        setInitError(err?.message || String(err));
+      }
     }
     checkInit();
   }, []);
+
+  if (initError) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: 'var(--bg-app)',
+        color: 'var(--text-secondary)',
+        fontFamily: 'var(--font-body)',
+        textAlign: 'center',
+        padding: '24px',
+        gap: '16px'
+      }}>
+        <h2 style={{ color: 'var(--danger)', fontSize: '1.4rem', fontWeight: 800 }}>Database Initialization Failed</h2>
+        <p style={{ maxWidth: '450px', fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          {initError}. This usually occurs when another application instance (like a built app) is running in the background and holding a lock on the database.
+        </p>
+        <button 
+          className="btn btn-primary"
+          onClick={() => {
+            setInitError(null);
+            setIsInitialized(null);
+            getSetting('hasBeenInitialized', false)
+              .then(setIsInitialized)
+              .catch((err: any) => setInitError(err?.message || String(err)));
+          }}
+          style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+        >
+          Retry Connection
+        </button>
+      </div>
+    );
+  }
 
   if (isInitialized === null) {
     return (
