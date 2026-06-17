@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, getSetting } from '../db/database';
-import type { Transaction, SalarySlip, ParsedPdf, Category } from '../db/database';
-import { renderPdfPageToCanvas, extractPagesFromPdf } from '../services/pdfParser';
-import { parseSalarySlipWithGemini, isGeminiFallbackError, parseChunkWithGemini } from '../services/gemini';
-import { parseBankStatementWithGroq, parseSalarySlipWithGroq } from '../services/groq';
+import { db, getSetting } from '../../db/database';
+import type { Transaction, SalarySlip, ParsedPdf, Category } from '../../db/database';
+import { renderPdfPageToCanvas, extractPagesFromPdf } from '../../services/pdfParser';
+import { parseSalarySlipWithGemini, isGeminiFallbackError, parseChunkWithGemini } from '../../services/gemini';
+import { parseBankStatementWithGroq, parseSalarySlipWithGroq } from '../../services/groq';
 import {
   FileUp,
   Loader2,
@@ -24,6 +24,7 @@ import {
   Hash,
   Sparkles,
 } from 'lucide-react';
+import './PdfParserView.css';
 
 type LlmProvider = 'gemini' | 'groq';
 
@@ -71,6 +72,7 @@ export const PdfParserView: React.FC = () => {
   // Cancellation ref and viewing history states
   const isCancelledRef = useRef(false);
   const [viewingHistoryPdf, setViewingHistoryPdf] = useState<ParsedPdf | null>(null);
+  const [showDetailedBreakdown, setShowDetailedBreakdown] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -529,6 +531,7 @@ export const PdfParserView: React.FC = () => {
         setParsedSalarySlip(null);
         setFile(null);
         setShowPdfPreview(false);
+        setShowDetailedBreakdown(false);
       }
     } catch (err: any) {
       setError('Import failed: ' + err?.message);
@@ -593,7 +596,7 @@ export const PdfParserView: React.FC = () => {
     : ['Food','Shopping','Utilities','Travel','Salary','Investment','Health','Entertainment','Others'];
 
   return (
-    <div className="view-container animate-fade-in">
+    <div className="view-container animate-fade-in-opacity">
       <header className="view-header">
         <h1>AI PDF Analyzer</h1>
         <p>Drop your bank statements or salary slips to extract all data instantly.</p>
@@ -701,7 +704,7 @@ export const PdfParserView: React.FC = () => {
                   </div>
                   <div className="llm-selector-wrapper">
                     <select
-                      className="form-select llm-select"
+                       className="form-select llm-select"
                       value={selectedProvider}
                       onChange={e => setSelectedProvider(e.target.value as LlmProvider)}
                     >
@@ -1034,42 +1037,58 @@ export const PdfParserView: React.FC = () => {
                                 </div>
                               </div>
                             </div>
-                            <div className="grid-section">
-                              <h4>Earnings Breakdown</h4>
-                              <div className="form-group">
-                                <label className="form-label">Basic Salary</label>
-                                  <input type="number" className="form-input" value={parsedSalarySlip.basicPay}
-                                    onChange={e => handleSalaryChange('basicPay', parseFloat(e.target.value) || 0)} />
+
+                            <div className="grid-section breakdown-toggle-section" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setShowDetailedBreakdown(!showDetailedBreakdown)}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Settings size={16} className="primary-color" style={{ color: 'var(--primary)' }} />
+                                <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>Detailed Breakdown (Basic, HRA, PF, Tax, etc.)</span>
                               </div>
-                              <div className="form-group">
-                                <label className="form-label">House Rent Allowance (HRA)</label>
-                                <input type="number" className="form-input" value={parsedSalarySlip.hra}
-                                  onChange={e => handleSalaryChange('hra', parseFloat(e.target.value) || 0)} />
-                              </div>
-                              <div className="form-group">
-                                <label className="form-label">Other Allowances</label>
-                                <input type="number" className="form-input" value={parsedSalarySlip.allowances}
-                                  onChange={e => handleSalaryChange('allowances', parseFloat(e.target.value) || 0)} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                <span>{showDetailedBreakdown ? 'Hide Edit Fields' : 'Show Edit Fields'}</span>
+                                <ChevronDown size={16} style={{ transform: showDetailedBreakdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </div>
                             </div>
-                            <div className="grid-section">
-                              <h4>Deductions</h4>
-                              <div className="form-group">
-                                <label className="form-label">Provident Fund (PF)</label>
-                                <input type="number" className="form-input" value={parsedSalarySlip.providentFund}
-                                  onChange={e => handleSalaryChange('providentFund', parseFloat(e.target.value) || 0)} />
-                              </div>
-                              <div className="form-group">
-                                <label className="form-label">Income Tax (TDS)</label>
-                                <input type="number" className="form-input border-danger-focus" value={parsedSalarySlip.taxDeducted}
-                                  onChange={e => handleSalaryChange('taxDeducted', parseFloat(e.target.value) || 0)} />
-                              </div>
-                              <div className="form-group">
-                                <label className="form-label">Other Deductions</label>
-                                <input type="number" className="form-input" value={parsedSalarySlip.otherDeductions}
-                                  onChange={e => handleSalaryChange('otherDeductions', parseFloat(e.target.value) || 0)} />
-                              </div>
-                            </div>
+
+                            {showDetailedBreakdown && (
+                              <>
+                                <div className="grid-section animate-fade-in-opacity">
+                                  <h4>Earnings Breakdown</h4>
+                                  <div className="form-group">
+                                    <label className="form-label">Basic Salary</label>
+                                      <input type="number" className="form-input" value={parsedSalarySlip.basicPay}
+                                        onChange={e => handleSalaryChange('basicPay', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                  <div className="form-group">
+                                    <label className="form-label">House Rent Allowance (HRA)</label>
+                                    <input type="number" className="form-input" value={parsedSalarySlip.hra}
+                                      onChange={e => handleSalaryChange('hra', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                  <div className="form-group">
+                                    <label className="form-label">Other Allowances</label>
+                                    <input type="number" className="form-input" value={parsedSalarySlip.allowances}
+                                      onChange={e => handleSalaryChange('allowances', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                </div>
+                                <div className="grid-section animate-fade-in-opacity">
+                                  <h4>Deductions</h4>
+                                  <div className="form-group">
+                                    <label className="form-label">Provident Fund (PF)</label>
+                                    <input type="number" className="form-input" value={parsedSalarySlip.providentFund}
+                                      onChange={e => handleSalaryChange('providentFund', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                  <div className="form-group">
+                                    <label className="form-label">Income Tax (TDS)</label>
+                                    <input type="number" className="form-input border-danger-focus" value={parsedSalarySlip.taxDeducted}
+                                      onChange={e => handleSalaryChange('taxDeducted', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                  <div className="form-group">
+                                    <label className="form-label">Other Deductions</label>
+                                    <input type="number" className="form-input" value={parsedSalarySlip.otherDeductions}
+                                      onChange={e => handleSalaryChange('otherDeductions', parseFloat(e.target.value) || 0)} />
+                                  </div>
+                                </div>
+                              </>
+                            )}
 
                             {((parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0) ||
                               (parsedSalarySlip.deductionsBreakdown && parsedSalarySlip.deductionsBreakdown.length > 0)) && (
@@ -1078,7 +1097,7 @@ export const PdfParserView: React.FC = () => {
                                   <Sparkles size={16} className="primary-color" style={{ color: 'var(--primary)' }} />
                                   <span>AI Extracted Itemized Components</span>
                                 </h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '12px' }}>
+                                <div className="itemized-components-grid">
                                   <div>
                                     <h5 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Earnings / Allowances</h5>
                                     {parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0 ? (
@@ -1124,7 +1143,7 @@ export const PdfParserView: React.FC = () => {
         </>
       )}
       {viewingHistoryPdf && (
-        <div className="modal-overlay animate-fade-in" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); }}>
+        <div className="modal-overlay animate-fade-in" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); setShowDetailedBreakdown(false); }}>
           <div className="modal-content history-modal glass-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="header-title-area">
@@ -1134,7 +1153,7 @@ export const PdfParserView: React.FC = () => {
                   {viewingHistoryPdf.type === 'bank' ? 'Bank Statement' : 'Salary Slip'}
                 </span>
               </div>
-              <button className="btn-close-modal" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); }}>
+              <button className="btn-close-modal" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); setShowDetailedBreakdown(false); }}>
                 <X size={20} />
               </button>
             </div>
@@ -1239,37 +1258,52 @@ export const PdfParserView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid-section">
-                      <h4>Earnings Breakdown</h4>
-                      <div className="read-only-row">
-                        <span className="read-only-label">Basic Salary:</span>
-                        <span className="read-only-value">₹{parsedSalarySlip.basicPay.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <div className="grid-section breakdown-toggle-section" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setShowDetailedBreakdown(!showDetailedBreakdown)}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Settings size={16} className="primary-color" style={{ color: 'var(--primary)' }} />
+                        <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>Detailed Breakdown (Basic, HRA, PF, Tax, etc.)</span>
                       </div>
-                      <div className="read-only-row">
-                        <span className="read-only-label">HRA:</span>
-                        <span className="read-only-value">₹{parsedSalarySlip.hra.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="read-only-row">
-                        <span className="read-only-label">Other Allowances:</span>
-                        <span className="read-only-value">₹{parsedSalarySlip.allowances.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        <span>{showDetailedBreakdown ? 'Hide Details' : 'Show Details'}</span>
+                        <ChevronDown size={16} style={{ transform: showDetailedBreakdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                       </div>
                     </div>
 
-                    <div className="grid-section">
-                      <h4>Deductions</h4>
-                      <div className="read-only-row">
-                        <span className="read-only-label">Provident Fund (PF):</span>
-                        <span className="read-only-value">₹{parsedSalarySlip.providentFund.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="read-only-row">
-                        <span className="read-only-label">Income Tax (TDS):</span>
-                        <span className="read-only-value value-danger">₹{parsedSalarySlip.taxDeducted.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="read-only-row">
-                        <span className="read-only-label">Other Deductions:</span>
-                        <span className="read-only-value">₹{parsedSalarySlip.otherDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                    </div>
+                    {showDetailedBreakdown && (
+                      <>
+                        <div className="grid-section animate-fade-in-opacity">
+                          <h4>Earnings Breakdown</h4>
+                          <div className="read-only-row">
+                            <span className="read-only-label">Basic Salary:</span>
+                            <span className="read-only-value">₹{parsedSalarySlip.basicPay.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="read-only-row">
+                            <span className="read-only-label">HRA:</span>
+                            <span className="read-only-value">₹{parsedSalarySlip.hra.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="read-only-row">
+                            <span className="read-only-label">Other Allowances:</span>
+                            <span className="read-only-value">₹{parsedSalarySlip.allowances.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid-section animate-fade-in-opacity">
+                          <h4>Deductions</h4>
+                          <div className="read-only-row">
+                            <span className="read-only-label">Provident Fund (PF):</span>
+                            <span className="read-only-value">₹{parsedSalarySlip.providentFund.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="read-only-row">
+                            <span className="read-only-label">Income Tax (TDS):</span>
+                            <span className="read-only-value value-danger">₹{parsedSalarySlip.taxDeducted.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="read-only-row">
+                            <span className="read-only-label">Other Deductions:</span>
+                            <span className="read-only-value">₹{parsedSalarySlip.otherDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     {((parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0) ||
                       (parsedSalarySlip.deductionsBreakdown && parsedSalarySlip.deductionsBreakdown.length > 0)) && (
@@ -1278,7 +1312,7 @@ export const PdfParserView: React.FC = () => {
                           <Sparkles size={16} className="primary-color" style={{ color: 'var(--primary)' }} />
                           <span>AI Extracted Itemized Components</span>
                         </h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '12px' }}>
+                        <div className="itemized-components-grid">
                           <div>
                             <h5 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Earnings / Allowances</h5>
                             {parsedSalarySlip.earningsBreakdown && parsedSalarySlip.earningsBreakdown.length > 0 ? (
@@ -1318,611 +1352,13 @@ export const PdfParserView: React.FC = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); }}>
+              <button className="btn btn-secondary" onClick={() => { setViewingHistoryPdf(null); setParsedTransactions([]); setParsedSalarySlip(null); setShowDetailedBreakdown(false); }}>
                 <span>Close History Viewer</span>
               </button>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        /* ── Tabs ── */
-        .tabs-container {
-          display: flex;
-          gap: 12px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 2px;
-        }
-
-        .tab-btn {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          font-family: var(--font-heading);
-          font-size: 1rem;
-          font-weight: 600;
-          padding: 8px 16px;
-          cursor: pointer;
-          position: relative;
-          transition: var(--transition-smooth);
-          display: flex;
-          align-items: center;
-        }
-
-        .tab-btn:hover { color: var(--text-primary); }
-        .tab-btn.active { color: var(--primary); }
-
-        .tab-btn.active::after {
-          content: '';
-          position: absolute;
-          bottom: -2px; left: 0; right: 0;
-          height: 2px;
-          background: var(--primary);
-          box-shadow: 0 0 10px var(--primary);
-        }
-
-        /* ── LLM Picker ── */
-        .llm-picker-card {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          padding: 14px 20px;
-          border: 1px solid var(--border-glass);
-        }
-
-        .llm-picker-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 0.88rem;
-          font-weight: 600;
-          color: var(--text-secondary);
-          white-space: nowrap;
-        }
-
-        .primary-color-icon { color: var(--primary); }
-
-        .llm-selector-wrapper {
-          position: relative;
-          flex: 1;
-          max-width: 340px;
-        }
-
-        .llm-select {
-          width: 100%;
-          padding-right: 36px;
-          appearance: none;
-          font-weight: 600;
-        }
-
-        .select-chevron {
-          position: absolute;
-          right: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: var(--text-muted);
-          pointer-events: none;
-        }
-
-        /* ── Upload Zone ── */
-        .upload-zone {
-          padding: 60px 40px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          border: 2px dashed var(--border-glass);
-          cursor: pointer;
-          transition: var(--transition-smooth);
-        }
-
-        .upload-zone.active {
-          border-color: var(--primary);
-          background: hsla(263, 90%, 65%, 0.04);
-        }
-
-        .upload-label-box {
-          cursor: pointer;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-
-        .upload-icon-wrapper {
-          width: 70px; height: 70px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.03);
-          display: flex; align-items: center; justify-content: center;
-          margin-bottom: 20px;
-          border: 1px solid var(--border-glass);
-          transition: var(--transition-smooth);
-        }
-
-        .upload-zone:hover .upload-icon-wrapper {
-          background: var(--primary-glow);
-          border-color: var(--primary);
-        }
-
-        .upload-icon { color: var(--text-secondary); transition: var(--transition-smooth); }
-        .upload-zone:hover .upload-icon { color: var(--primary); }
-
-        .upload-label-box h3 { font-size: 1.25rem; margin-bottom: 6px; }
-        .upload-label-box p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px; }
-
-        .file-limit-badge {
-          font-size: 0.75rem;
-          background: rgba(255,255,255,0.06);
-          padding: 4px 8px;
-          border-radius: 12px;
-          color: var(--text-muted);
-          font-weight: 500;
-        }
-
-        /* ── Selected File Card ── */
-        .selected-file-card {
-          padding: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .file-info-row {
-          display: flex; align-items: center;
-          gap: 16px; flex: 1;
-        }
-
-        .file-details h4 { font-size: 1rem; margin-bottom: 2px; }
-        .file-details span { font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
-
-        .provider-badge {
-          font-size: 0.72rem;
-          padding: 2px 8px;
-          border-radius: 10px;
-          background: var(--primary-glow);
-          color: var(--primary);
-          border: 1px solid var(--primary);
-          font-weight: 600;
-        }
-
-        .btn-close-action {
-          background: transparent; border: none;
-          color: var(--text-muted); cursor: pointer;
-          padding: 4px; border-radius: 50%;
-          display: flex; margin-left: 12px;
-          transition: var(--transition-smooth);
-        }
-
-        .btn-close-action:hover { color: var(--danger); background: var(--danger-glow); }
-
-        /* ── Loading ── */
-        .loading-card {
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          padding: 60px 40px; text-align: center;
-        }
-
-        .spinner-icon { animation: spin 1.5s linear infinite; margin-bottom: 20px; }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .spinning { animation: spin 1s linear infinite; }
-
-        .loading-card h3 { margin-bottom: 6px; }
-        .glow-text { color: var(--text-secondary); font-size: 0.95rem; }
-
-        /* ── API Warning ── */
-        .api-warning-card {
-          display: flex; align-items: center;
-          padding: 24px; gap: 20px;
-        }
-
-        .warning-icon { color: var(--warning); }
-        .flex-btn-align { margin-left: auto; }
-
-        /* ── Workspace Split ── */
-        .workspace-split {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 24px;
-          align-items: start;
-        }
-
-        .workspace-split.with-preview {
-          grid-template-columns: 350px 1fr;
-        }
-
-        .pdf-preview-card {
-          padding: 16px; height: calc(100vh - 290px);
-          display: flex; flex-direction: column;
-        }
-
-        .preview-header {
-          display: flex; align-items: center; gap: 8px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 12px; margin-bottom: 12px;
-        }
-
-        .canvas-wrapper {
-          flex: 1; overflow: auto;
-          background: #111827;
-          border-radius: var(--border-radius-md);
-          display: flex; align-items: flex-start; justify-content: center;
-        }
-
-        .pdf-canvas { max-width: 100%; display: block; }
-
-        .data-review-card {
-          padding: 24px; display: flex;
-          flex-direction: column;
-          height: calc(100vh - 290px);
-        }
-
-        .review-header-row {
-          display: flex; justify-content: space-between; align-items: flex-start;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 16px; margin-bottom: 16px;
-        }
-
-        .review-scroll-container { flex: 1; overflow-y: auto; }
-
-        /* ── Review Table ── */
-        .review-table {
-          width: 100%; border-collapse: collapse; text-align: left;
-        }
-
-        .review-table th {
-          padding: 10px 8px; font-size: 0.8rem; font-weight: 600;
-          color: var(--text-muted); border-bottom: 1px solid var(--border-glass);
-          text-transform: uppercase;
-        }
-
-        .review-table td {
-          padding: 6px 8px; border-bottom: 1px solid var(--border-glass);
-          vertical-align: middle;
-        }
-
-        .row-others td {
-          background: rgba(251, 191, 36, 0.03);
-        }
-
-        .table-input { padding: 6px 10px; width: 100%; font-size: 0.85rem; }
-        .table-select { padding: 6px 10px; font-size: 0.85rem; width: 100%; }
-        .width-100 { width: 100px !important; }
-
-        .select-others {
-          border-color: rgba(251, 191, 36, 0.5) !important;
-          color: #f59e0b;
-        }
-
-        .btn-delete-row {
-          background: transparent; border: none;
-          color: var(--text-muted); cursor: pointer;
-          padding: 4px; border-radius: 4px;
-          transition: var(--transition-smooth);
-        }
-
-        .btn-delete-row:hover { color: var(--danger); background: var(--danger-glow); }
-
-        /* ── Salary Grid ── */
-        .salary-fields-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 24px;
-        }
-
-        .grid-section {
-          background: rgba(255,255,255,0.015);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-          padding: 16px;
-          display: flex; flex-direction: column; gap: 12px;
-        }
-
-        .grid-section h4 {
-          font-size: 0.95rem; color: var(--text-secondary);
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 8px; margin-bottom: 4px;
-        }
-
-        /* ── History ── */
-        .history-card { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-
-        .history-header {
-          display: flex; align-items: center; gap: 12px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 14px;
-        }
-
-        .history-header h3 { font-size: 1.05rem; font-weight: 600; }
-
-        .badge-count {
-          font-size: 0.75rem; font-weight: 700;
-          padding: 2px 10px; border-radius: 20px;
-          background: var(--primary-glow);
-          color: var(--primary);
-          border: 1px solid var(--primary);
-        }
-
-        .history-empty {
-          display: flex; flex-direction: column;
-          align-items: center; gap: 12px;
-          padding: 40px; text-align: center;
-          color: var(--text-muted); font-size: 0.9rem;
-          background: rgba(255,255,255,0.015);
-          border: 1px dashed var(--border-glass);
-          border-radius: var(--border-radius-md);
-        }
-
-        .history-list { display: flex; flex-direction: column; gap: 10px; }
-
-        .history-row {
-          display: flex; align-items: center; gap: 14px;
-          padding: 14px 16px;
-          background: rgba(255,255,255,0.015);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-          transition: var(--transition-smooth);
-        }
-
-        .history-row:hover {
-          background: rgba(255,255,255,0.025);
-          border-color: rgba(255,255,255,0.06);
-        }
-
-        .history-icon-wrap {
-          width: 38px; height: 38px; border-radius: var(--border-radius-md);
-          background: var(--primary-glow); border: 1px solid var(--primary);
-          display: flex; align-items: center; justify-content: center;
-          color: var(--primary); flex-shrink: 0;
-        }
-
-        .history-details {
-          flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0;
-        }
-
-        .history-filename {
-          font-size: 0.9rem; font-weight: 600;
-          color: var(--text-primary);
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-
-        .history-meta {
-          display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-        }
-
-        .history-type-badge {
-          font-size: 0.68rem; font-weight: 700;
-          padding: 2px 8px; border-radius: 10px;
-          text-transform: uppercase; letter-spacing: 0.04em;
-        }
-
-        .history-type-badge.bank { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
-        .history-type-badge.salary { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
-
-        .history-meta-item {
-          display: flex; align-items: center; gap: 4px;
-          font-size: 0.75rem; color: var(--text-muted);
-        }
-
-        .btn-delete-pdf {
-          background: transparent; border: none;
-          color: var(--text-muted); cursor: pointer;
-          padding: 8px; border-radius: var(--border-radius-md);
-          display: flex; align-items: center; justify-content: center;
-          transition: var(--transition-smooth);
-          flex-shrink: 0;
-        }
-
-        .btn-delete-pdf:hover:not(:disabled) {
-          color: var(--danger); background: var(--danger-glow);
-        }
-
-        .btn-delete-pdf:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .muted-icon { color: var(--text-muted); }
-
-        /* ── Misc ── */
-        .border-success-focus:focus { border-color: var(--success); box-shadow: 0 0 0 3px var(--success-glow); }
-        .border-danger-focus:focus  { border-color: var(--danger);  box-shadow: 0 0 0 3px var(--danger-glow); }
-        .glow-border-success { border-color: var(--success); }
-
-        .flex-column-gap {
-          display: flex; flex-direction: column;
-          gap: 16px; align-items: stretch !important;
-        }
-
-        .w-100 { width: 100%; }
-
-        .form-group-row { display: flex; gap: 12px; width: 100%; }
-        .password-prompt-box { }
-        .password-prompt-input { flex: 1; }
-        .align-self-end { align-self: flex-end; }
-        .text-center { text-align: center; }
-        .secondary-color { color: var(--text-secondary); }
-        .primary-color { color: var(--primary); }
-
-        /* ── Modal Overlay ── */
-        .modal-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0, 0, 0, 0.75);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 24px;
-        }
-
-        .modal-content.history-modal {
-          width: 100%;
-          max-width: 1000px;
-          max-height: 85vh;
-          display: flex;
-          flex-direction: column;
-          padding: 24px;
-          border: 1px solid var(--border-glass);
-          box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-          overflow: hidden;
-          background: rgba(17, 24, 39, 0.85);
-        }
-
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 16px;
-        }
-
-        .header-title-area {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          min-width: 0;
-        }
-
-        .header-title-area h3 {
-          font-size: 1.15rem;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin: 0;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .btn-close-modal {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: var(--transition-smooth);
-        }
-
-        .btn-close-modal:hover {
-          color: var(--text-primary);
-          background: var(--border-glass);
-        }
-
-        .modal-meta-bar {
-          display: flex;
-          gap: 20px;
-          margin-top: 12px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 12px;
-          flex-wrap: wrap;
-        }
-
-        .modal-meta-bar .meta-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 0.8rem;
-          color: var(--text-secondary);
-        }
-
-        .modal-body {
-          flex: 1;
-          overflow-y: auto;
-          padding: 20px 0;
-        }
-
-        .modal-footer {
-          border-top: 1px solid var(--border-glass);
-          padding-top: 16px;
-          display: flex;
-          justify-content: flex-end;
-          gap: 12px;
-        }
-
-        .badge-category-static {
-          font-size: 0.75rem;
-          font-weight: 600;
-          background: var(--primary-glow);
-          color: var(--primary);
-          border: 1px solid hsla(263, 90%, 65%, 0.2);
-          padding: 3px 8px;
-          border-radius: 6px;
-          display: inline-block;
-        }
-
-        .badge-type-static {
-          font-size: 0.72rem;
-          font-weight: 700;
-          padding: 2px 8px;
-          border-radius: 6px;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-          display: inline-block;
-        }
-
-        .badge-type-static.credit {
-          background: rgba(34, 197, 94, 0.12);
-          color: #4ade80;
-          border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-
-        .badge-type-static.debit {
-          background: rgba(239, 68, 68, 0.12);
-          color: #f87171;
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .read-only-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 10px 0;
-          border-bottom: 1px solid rgba(255,255,255,0.03);
-        }
-
-        .read-only-label {
-          color: var(--text-muted);
-          font-size: 0.88rem;
-        }
-
-        .read-only-value {
-          color: var(--text-primary);
-          font-weight: 600;
-          font-size: 0.88rem;
-        }
-
-        .value-success {
-          color: #4ade80 !important;
-        }
-
-        .value-success-glow {
-          color: #4ade80 !important;
-          text-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
-        }
-
-        .value-danger {
-          color: #f87171 !important;
-        }
-
-        .table-responsive {
-          width: 100%;
-          overflow-x: auto;
-          border-radius: var(--border-radius-md);
-          border: 1px solid var(--border-glass);
-        }
-
-        @media (max-width: 576px) {
-          .hide-on-mobile { display: none !important; }
-        }
-      `}</style>
     </div>
   );
 };

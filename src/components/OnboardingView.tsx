@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { setSetting } from '../db/database';
-import { Wallet, ArrowRight, Coins, User, Key } from 'lucide-react';
+import { Wallet, ArrowRight, Coins, User, Key, MapPin } from 'lucide-react';
 
 interface OnboardingViewProps {
   onComplete: () => void;
@@ -10,6 +10,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
   const [step, setStep] = useState(1);
   const [userName, setUserName] = useState('User');
   const [currency, setCurrency] = useState('INR');
+  const [userCity, setUserCity] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [groqKey, setGroqKey] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -19,6 +20,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
     try {
       await setSetting('userName', userName.trim() || 'User');
       await setSetting('currency', currency);
+      await setSetting('userCity', userCity.trim());
       await setSetting('geminiApiKey', geminiKey.trim());
       await setSetting('groqApiKey', groqKey.trim());
       await setSetting('hasBeenInitialized', true);
@@ -88,6 +90,20 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) =>
                 <option value="GBP">GBP (£) - British Pound</option>
                 <option value="JPY">JPY (¥) - Japanese Yen</option>
               </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                <MapPin size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                City of Residence
+              </label>
+              <input 
+                type="text" 
+                className="form-input" 
+                value={userCity} 
+                onChange={(e) => setUserCity(e.target.value)} 
+                placeholder="e.g. Bangalore, Mumbai, Kochi..."
+              />
             </div>
 
             <div className="btn-row">

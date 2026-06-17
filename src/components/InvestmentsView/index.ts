@@ -1,0 +1,1 @@
+export { InvestmentsView } from './InvestmentsView';

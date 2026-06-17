@@ -1,0 +1,1 @@
+export { SalaryMappingsView } from './SalaryMappingsView';

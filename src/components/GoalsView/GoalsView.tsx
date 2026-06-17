@@ -1,12 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting } from '../db/database';
-import type { Goal } from '../db/database';
-import { formatAmount } from '../utils/currency';
-import { Plus, X, Target, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
+import { db, getSetting } from '../../db/database';
+import type { Goal } from '../../db/database';
+import { formatAmount } from '../../utils/currency';
+import { Plus, X, Target, Pencil, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import './GoalsView.css';
 
 const GOAL_EMOJIS = ['🏖️','🚗','🏠','💻','📱','✈️','💍','🎓','🏋️','🛡️','🎸','👶'];
 const GOAL_COLOURS = ['#8b5cf6','#06b6d4','#f97316','#22c55e','#ec4899','#eab308','#3b82f6','#ef4444'];
+
+const DELETION_HUMOUR = [
+  "Wait! Are you sure? That dream vacation/gadget/future-rich-self is crying in a corner right now! 🥺",
+  "Hold your horses! Deleting this goal? Your piggy bank is sweating profusely. 🐷💦",
+  "Whoa! Are you sure you want to banish this dream to the financial void? Your future self is watching... 👀",
+  "Stop right there! Deleting this goal? Even your wallet is giving you the side-eye. 🤨💸",
+  "Wait, don't give up on this yet! We believe in you, even if your bank account is currently laughing. 📈"
+];
 
 interface GoalFormState {
   name: string;
@@ -28,10 +38,14 @@ export const GoalsView: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<GoalFormState>(blank());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
+  const [deleteHumourMsg, setDeleteHumourMsg] = useState('');
 
   useEffect(() => { getSetting('currency', 'INR').then(setCurrency); }, []);
 
   const goals = useLiveQuery(() => db.goals.toArray(), []) ?? [];
+
 
   const daysLeft = (targetDate: string) => {
     const diff = new Date(targetDate).getTime() - Date.now();
@@ -75,9 +89,21 @@ export const GoalsView: React.FC = () => {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Delete this goal?')) await db.goals.delete(id);
+  const handleDeleteClick = (g: Goal) => {
+    setGoalToDelete(g);
+    const msg = DELETION_HUMOUR[Math.floor(Math.random() * DELETION_HUMOUR.length)];
+    setDeleteHumourMsg(msg);
+    setShowDeleteConfirm(true);
   };
+
+  const confirmDelete = async () => {
+    if (goalToDelete) {
+      await db.goals.delete(goalToDelete.id);
+      setShowDeleteConfirm(false);
+      setGoalToDelete(null);
+    }
+  };
+
 
   const addSavings = async (g: Goal, amount: number) => {
     const newSaved = Math.min(g.targetAmount, g.savedAmount + amount);
@@ -98,6 +124,27 @@ export const GoalsView: React.FC = () => {
           <Plus size={18} /> <span>New Goal</span>
         </button>
       </header>
+
+      {/* Info Card Banner explaining tracking */}
+      <div className="glass-card goal-info-card">
+        <div className="goal-info-icon">💡</div>
+        <div className="goal-info-content">
+          <strong>How Savings Goals Work</strong>
+          <p>
+            Kosha tracks your savings goals dynamically. Each card displays your current progress (how much is already saved vs. your target amount), calculates the percentage achieved, and estimates the monthly savings needed to reach your target by the deadline.
+          </p>
+          <div className="goal-info-guide">
+            <div className="guide-item">
+              <span className="guide-indicator achieved"></span>
+              <span><strong>Achieved (Green/Theme)</strong>: Represents the funds you have already saved. The progress bar visualizes this percentage.</span>
+            </div>
+            <div className="guide-item" style={{ marginTop: '4px' }}>
+              <span className="guide-indicator pending"></span>
+              <span><strong>Pending (Muted Track)</strong>: Represents the remaining amount needed to reach your target before the date expires.</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Summary */}
       {goals.length > 0 && (
@@ -147,7 +194,7 @@ export const GoalsView: React.FC = () => {
                   <div className="goal-actions">
                     {done && <CheckCircle2 size={18} color="#22c55e" />}
                     <button className="icon-btn" onClick={() => handleEdit(g)}><Pencil size={15} /></button>
-                    <button className="icon-btn danger" onClick={() => handleDelete(g.id)}><Trash2 size={15} /></button>
+                    <button className="icon-btn danger" onClick={() => handleDeleteClick(g)}><Trash2 size={15} /></button>
                   </div>
                 </div>
 
@@ -184,9 +231,9 @@ export const GoalsView: React.FC = () => {
       )}
 
       {/* Form Overlay */}
-      {showForm && (
+      {showForm && createPortal(
         <div className="drawer-overlay" onClick={() => setShowForm(false)}>
-          <div className="glass-card drawer-content" onClick={e => e.stopPropagation()}>
+          <div className="glass-card modal-content-centered" onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <h3>{editId ? 'Edit Goal' : 'New Savings Goal'}</h3>
               <button className="btn-close" onClick={() => setShowForm(false)}><X size={20} /></button>
@@ -255,64 +302,46 @@ export const GoalsView: React.FC = () => {
               </button>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      <style>{`
-        .goals-summary {
-          display: flex; align-items: center; padding: 20px 28px; flex-wrap: wrap; gap: 0;
-        }
-        .gs-item { display: flex; flex-direction: column; gap: 3px; padding: 0 20px; flex: 1; min-width: 120px; }
-        .gs-item:first-child { padding-left: 0; }
-        .gs-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-        .gs-item strong { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
-        .gs-divider { width: 1px; height: 36px; background: var(--border-glass); }
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && goalToDelete && createPortal(
+        <div className="drawer-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="glass-card modal-content-centered modal-narrow delete-confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={22} className="danger-color" style={{ color: 'var(--danger)' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Keep the Dream Alive?</h3>
+              </div>
+              <button className="btn-close" onClick={() => setShowDeleteConfirm(false)}><X size={20} /></button>
+            </div>
+            
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
+                {deleteHumourMsg}
+              </p>
 
-        .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+              <div style={{ padding: '12px 14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', fontSize: '0.78rem', color: 'var(--danger)', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>Confirming will delete your goal for <strong>{goalToDelete.name}</strong> and erase all track of your saved <strong>{formatAmount(goalToDelete.savedAmount, currency)}</strong>.</span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button className="btn btn-secondary btn-full" onClick={() => setShowDeleteConfirm(false)} style={{ flex: 1, margin: 0 }}>
+                  No, Keep It!
+                </button>
+                <button className="btn btn-danger btn-full" onClick={confirmDelete} style={{ flex: 1, margin: 0, background: 'var(--danger)', color: '#fff', border: 'none' }}>
+                  Yes, Banish It
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
-        .goal-card { padding: 20px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-glass); transition: border-color .3s; }
-
-        .goal-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
-
-        .goal-emoji-wrap { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
-        .goal-emoji { font-size: 1.6rem; }
-
-        .goal-actions { display: flex; gap: 6px; align-items: center; }
-        .icon-btn { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 5px; cursor: pointer; color: var(--text-muted); transition: all .2s; display: flex; }
-        .icon-btn:hover { background: rgba(255,255,255,.06); color: var(--text-primary); border-color: var(--border-glass); }
-        .icon-btn.danger:hover { color: #ef4444; border-color: rgba(239,68,68,.2); }
-
-        .goal-name { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0; }
-        .goal-notes { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
-
-        .goal-amounts { display: flex; align-items: baseline; gap: 6px; }
-        .goal-saved { font-size: 1.5rem; font-weight: 800; }
-        .goal-of { font-size: 0.82rem; color: var(--text-muted); }
-
-        .goal-bar-track { height: 8px; background: rgba(255,255,255,.05); border-radius: 99px; overflow: hidden; }
-        .goal-bar-fill { height: 100%; border-radius: 99px; transition: width .7s cubic-bezier(.4,0,.2,1); }
-
-        .goal-pct { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
-
-        .goal-meta-row { display: flex; justify-content: space-between; align-items: center; }
-        .goal-days { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
-        .goal-days.urgent { color: #f97316; }
-        .goal-days.overdue { color: #ef4444; }
-        .goal-rpm { font-size: 0.75rem; color: var(--text-muted); }
-
-        .emoji-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-        .emoji-btn { background: rgba(255,255,255,.04); border: 1px solid var(--border-glass); border-radius: 8px; padding: 6px; font-size: 1.2rem; cursor: pointer; transition: all .15s; }
-        .emoji-btn.selected { border-color: var(--primary); background: var(--primary-glow); }
-
-        .colour-picker { display: flex; gap: 8px; }
-        .colour-btn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform .15s; }
-        .colour-btn.selected { border-color: white; transform: scale(1.2); }
-        .colour-btn:hover { transform: scale(1.1); }
-
-        .add-savings-row { display: flex; gap: 6px; margin-top: 4px; }
-        .add-savings-input { flex: 1; padding: 6px 10px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-glass); background: rgba(255,255,255,.04); color: var(--text-primary); font-size: 0.88rem; font-family: var(--font-body); }
-        .add-savings-input:focus { outline: none; border-color: var(--primary); }
-      `}</style>
     </div>
   );
 };

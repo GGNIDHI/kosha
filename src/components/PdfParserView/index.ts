@@ -1,0 +1,1 @@
+export { PdfParserView } from './PdfParserView';

@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting } from '../db/database';
-import type { Transaction } from '../db/database';
-import { formatAmount } from '../utils/currency';
-import { detectRecurring } from '../utils/recurringDetector';
+import { db, getSetting } from '../../db/database';
+import type { Transaction } from '../../db/database';
+import { formatAmount } from '../../utils/currency';
+import { detectRecurring } from '../../utils/recurringDetector';
+import type { RecurringTransaction } from '../../utils/recurringDetector';
 import { Plus, Search, Trash2, Filter, X, ArrowUpRight, ArrowDownLeft, FileSpreadsheet, ReceiptText, RefreshCw } from 'lucide-react';
+import './LedgerView.css';
+
 
 export const LedgerView: React.FC = () => {
   const [currency, setCurrency] = useState('INR');
   const [showForm, setShowForm] = useState(false);
   const [showRecurring, setShowRecurring] = useState(false);
+  const [selectedRecurring, setSelectedRecurring] = useState<RecurringTransaction | null>(null);
+
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterType, setFilterType] = useState('All');
@@ -130,7 +136,7 @@ export const LedgerView: React.FC = () => {
           </div>
           <div className="recurring-grid">
             {recurringTxs.map((r, i) => (
-              <div key={i} className="recurring-item">
+              <div key={i} className="recurring-item" onClick={() => setSelectedRecurring(r)}>
                 <div className="recurring-item-top">
                   <span className="recurring-desc">{r.description}</span>
                   <span className={`recurring-badge freq-${r.frequency}`}>{r.frequency}</span>
@@ -144,22 +150,24 @@ export const LedgerView: React.FC = () => {
                 </div>
               </div>
             ))}
+
           </div>
         </div>
       )}
 
       {/* Manual Input Drawer / Overlay */}
-      {showForm && (
+      {showForm && createPortal(
         <div className="drawer-overlay" onClick={() => setShowForm(false)}>
-          <div className="glass-card drawer-content" onClick={(e) => e.stopPropagation()}>
-            <div className="drawer-header">
+          <div className="glass-card modal-content-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="ledger-drawer-header">
               <h3>New Transaction</h3>
               <button className="btn-close" onClick={() => setShowForm(false)}>
                 <X size={20} />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="drawer-form">
+            <form onSubmit={handleSubmit} className="ledger-drawer-form">
+
               <div className="form-group">
                 <label className="form-label">Date</label>
                 <input 
@@ -238,9 +246,87 @@ export const LedgerView: React.FC = () => {
                 Save Entry
               </button>
             </form>
+        </div>
+      </div>,
+      document.body
+    )}
+
+    {selectedRecurring && createPortal(
+      <div className="drawer-overlay" onClick={() => setSelectedRecurring(null)}>
+        <div className="glass-card modal-content-centered" style={{ width: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="ledger-drawer-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <RefreshCw size={20} className="primary-color" style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Recurring History</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                  {selectedRecurring.description}
+                </p>
+              </div>
+            </div>
+            <button className="btn-close" onClick={() => setSelectedRecurring(null)}><X size={20} /></button>
+          </div>
+
+          <div style={{ padding: '20px 24px 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="recurring-history-meta" style={{ display: 'flex', gap: '20px', background: 'rgba(255,255,255,0.02)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Frequency</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--primary)' }}>{selectedRecurring.frequency}</span>
+              </div>
+              <div style={{ width: '1px', background: 'var(--border-glass)' }} />
+              <div>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Avg. Amount</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--danger)' }}>{formatAmount(selectedRecurring.averageAmount, currency)}</span>
+              </div>
+              <div style={{ width: '1px', background: 'var(--border-glass)' }} />
+              <div>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Occurrences</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>{selectedRecurring.occurrences} times</span>
+              </div>
+            </div>
+
+            <div className="table-responsive" style={{ maxHeight: '350px' }}>
+              <table className="ledger-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '10px 12px', fontSize: '0.78rem' }}>Date</th>
+                    <th style={{ padding: '10px 12px', fontSize: '0.78rem' }}>Description</th>
+                    <th style={{ padding: '10px 12px', fontSize: '0.78rem' }}>Source</th>
+                    <th style={{ padding: '10px 12px', fontSize: '0.78rem' }} className="text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedRecurring.transactions || []).map((tx) => (
+                    <tr key={tx.id} className="table-row">
+                      <td style={{ padding: '10px 12px', fontSize: '0.85rem' }} className="tx-date">{tx.date}</td>
+                      <td style={{ padding: '10px 12px', fontSize: '0.85rem' }} className="tx-desc">
+                        <span className="desc-text">{tx.description}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: '0.85rem' }} className="tx-source">
+                        {tx.source === 'bank_statement' ? (
+                          <span className="flex-source-icon" title={tx.pdfName}>
+                            <FileSpreadsheet size={14} className="source-icon-pdf" />
+                            <span>Parsed</span>
+                          </span>
+                        ) : (
+                          <span>Manual</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: '0.85rem' }} className="tx-amount text-right debit">
+                        - {formatAmount(tx.amount, currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      )}
+      </div>,
+      document.body
+    )}
+
+
 
       {/* Filter Toolbar */}
       <div className="glass-card toolbar-card">
@@ -357,438 +443,6 @@ export const LedgerView: React.FC = () => {
           </div>
         )}
       </div>
-
-      <style>{`
-        .view-header-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-
-        .toolbar-card {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 16px;
-          gap: 16px;
-          flex-wrap: wrap;
-        }
-
-        .search-box {
-          display: flex;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-          padding: 8px 12px;
-          width: 350px;
-          max-width: 100%;
-        }
-
-        .search-icon {
-          color: var(--text-muted);
-          margin-right: 8px;
-        }
-
-        .search-input-field {
-          background: transparent;
-          border: none;
-          outline: none;
-          color: var(--text-primary);
-          font-family: var(--font-body);
-          font-size: 0.9rem;
-          width: 100%;
-        }
-
-        .filters-group {
-          display: flex;
-          gap: 12px;
-        }
-
-        .filter-item {
-          display: flex;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-          padding: 8px 12px;
-          gap: 8px;
-        }
-
-        .filter-icon {
-          color: var(--text-muted);
-        }
-
-        .filter-select {
-          background: transparent;
-          border: none;
-          outline: none;
-          color: var(--text-primary);
-          font-family: var(--font-body);
-          font-size: 0.85rem;
-          cursor: pointer;
-        }
-
-        .filter-select option {
-          background: var(--bg-app);
-          color: var(--text-primary);
-        }
-
-        /* Ledger Table styles */
-        .ledger-card {
-          padding: 8px;
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-        }
-
-        .table-responsive {
-          width: 100%;
-          overflow-x: auto;
-          overflow-y: auto;
-          max-height: calc(100vh - 280px);
-        }
-
-        .ledger-table {
-          width: 100%;
-          border-collapse: collapse;
-          text-align: left;
-        }
-
-        .ledger-table th {
-          padding: 16px;
-          font-family: var(--font-heading);
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          border-bottom: 1px solid var(--border-glass);
-        }
-
-        .ledger-table td {
-          padding: 16px;
-          font-size: 0.9rem;
-          border-bottom: 1px solid var(--border-glass);
-          vertical-align: middle;
-        }
-
-        .table-row {
-          transition: var(--transition-smooth);
-        }
-
-        .table-row:hover {
-          background: rgba(255, 255, 255, 0.02);
-        }
-
-        .tx-date {
-          color: var(--text-secondary);
-          font-weight: 500;
-          white-space: nowrap;
-        }
-
-        .tx-desc {
-          max-width: 300px;
-        }
-
-        .desc-text {
-          display: block;
-          font-weight: 600;
-          color: var(--text-primary);
-        }
-
-        .notes-text {
-          display: block;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-top: 2px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .tx-source {
-          font-size: 0.8rem;
-          color: var(--text-muted);
-        }
-
-        .flex-source-icon {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .source-icon-pdf {
-          color: var(--secondary);
-        }
-
-        .tx-amount {
-          font-family: var(--font-heading);
-          font-weight: 700;
-          font-size: 1rem;
-          white-space: nowrap;
-        }
-
-        .tx-amount.debit {
-          color: var(--danger);
-        }
-
-        .tx-amount.credit {
-          color: var(--success);
-        }
-
-        .tx-flow-icon {
-          margin-right: 4px;
-          vertical-align: middle;
-          display: inline-flex;
-        }
-
-        .text-right {
-          text-align: right;
-        }
-
-        .text-center {
-          text-align: center;
-        }
-
-        .btn-delete-action {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 6px;
-          transition: var(--transition-smooth);
-        }
-
-        .btn-delete-action:hover {
-          color: var(--danger);
-          background: var(--danger-glow);
-        }
-
-        .badge {
-          display: inline-block;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          text-transform: capitalize;
-        }
-
-        /* Badges for Categories */
-        .badge-category {
-          background: rgba(255, 255, 255, 0.05);
-          color: var(--text-secondary);
-        }
-
-        .badge-category.cat-food { background: hsla(15, 80%, 50%, 0.12); color: hsl(15, 85%, 55%); }
-        .badge-category.cat-shopping { background: hsla(280, 80%, 50%, 0.12); color: hsl(280, 85%, 60%); }
-        .badge-category.cat-utilities { background: hsla(200, 80%, 50%, 0.12); color: hsl(200, 85%, 55%); }
-        .badge-category.cat-travel { background: hsla(45, 80%, 50%, 0.12); color: hsl(45, 85%, 55%); }
-        .badge-category.cat-salary { background: hsla(142, 80%, 50%, 0.12); color: hsl(142, 85%, 55%); }
-        .badge-category.cat-investment { background: hsla(190, 80%, 50%, 0.12); color: hsl(190, 85%, 50%); }
-        .badge-category.cat-health { background: hsla(350, 80%, 50%, 0.12); color: hsl(350, 85%, 58%); }
-        .badge-category.cat-entertainment { background: hsla(320, 80%, 50%, 0.12); color: hsl(320, 85%, 55%); }
-
-        .empty-state {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 80px 40px;
-          text-align: center;
-          flex: 1;
-        }
-
-        .empty-icon {
-          color: var(--text-muted);
-          margin-bottom: 16px;
-        }
-
-        .empty-state h3 {
-          font-size: 1.2rem;
-          margin-bottom: 8px;
-        }
-
-        .empty-state p {
-          color: var(--text-muted);
-          max-width: 400px;
-          font-size: 0.9rem;
-          line-height: 1.5;
-        }
-
-        /* Drawer Overlay */
-        .drawer-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.6);
-          backdrop-filter: blur(4px);
-          z-index: 1000;
-          display: flex;
-          justify-content: flex-end;
-          animation: fadeIn 0.2s ease-out;
-        }
-
-        .drawer-content {
-          width: 420px;
-          height: 100%;
-          border-radius: 0;
-          border-left: 1px solid var(--border-glass);
-          border-top: none;
-          border-bottom: none;
-          padding: 32px;
-          display: flex;
-          flex-direction: column;
-          animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
-
-        .drawer-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 20px;
-          margin-bottom: 24px;
-        }
-
-        .drawer-header h3 {
-          font-size: 1.3rem;
-        }
-
-        .btn-close {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-        }
-
-        .btn-close:hover {
-          color: var(--text-primary);
-        }
-
-        .drawer-form {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          flex: 1;
-          overflow-y: auto;
-        }
-
-        .form-row-2 {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-        }
-
-        .btn-full {
-          width: 100%;
-          padding: 12px;
-          margin-top: 16px;
-        }
-
-        /* Recurring panel */
-        .recurring-panel {
-          padding: 20px 24px;
-          border: 1px solid rgba(99, 102, 241, 0.15);
-        }
-
-        .recurring-panel-header {
-          margin-bottom: 16px;
-        }
-
-        .recurring-panel-header h3 {
-          font-size: 1rem;
-          font-weight: 700;
-          color: var(--text-primary);
-          margin-bottom: 4px;
-        }
-
-        .recurring-panel-sub {
-          font-size: 0.82rem;
-          color: var(--text-muted);
-        }
-
-        .recurring-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-          gap: 12px;
-        }
-
-        .recurring-item {
-          background: rgba(255,255,255,0.03);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-          padding: 12px 14px;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-
-        .recurring-item-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 6px;
-        }
-
-        .recurring-desc {
-          font-size: 0.88rem;
-          font-weight: 600;
-          color: var(--text-primary);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .recurring-badge {
-          flex-shrink: 0;
-          font-size: 0.65rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          padding: 2px 7px;
-          border-radius: 99px;
-        }
-
-        .freq-monthly   { background: rgba(99,102,241,0.12); color: #818cf8; }
-        .freq-bi-weekly { background: rgba(236,72,153,0.12); color: #f472b6; }
-        .freq-weekly    { background: rgba(234,179,8,0.12);  color: #fbbf24; }
-
-        .recurring-item-bottom {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .recurring-cat {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-        }
-
-        .recurring-amount {
-          font-size: 0.95rem;
-          font-weight: 800;
-          color: var(--danger);
-        }
-
-        .recurring-meta {
-          font-size: 0.72rem;
-          color: var(--text-muted);
-          border-top: 1px solid var(--border-glass);
-          padding-top: 6px;
-          margin-top: 2px;
-        }
-      `}</style>
     </div>
   );
 };

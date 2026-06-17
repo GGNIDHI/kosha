@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db, getSetting, setSetting } from '../db/database';
+import { db, getSetting, setSetting } from '../../db/database';
 import { Key, ShieldAlert, Database, Download, Upload, Trash2, CheckCircle2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
+import './SettingsView.css';
 
 export const SettingsView: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
@@ -9,6 +10,7 @@ export const SettingsView: React.FC = () => {
   const [showGroqKey, setShowGroqKey] = useState(false);
   const [userName, setUserName] = useState('User');
   const [currency, setCurrency] = useState('INR');
+  const [userCity, setUserCity] = useState('');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [purgeSuccess, setPurgeSuccess] = useState(false);
@@ -19,10 +21,12 @@ export const SettingsView: React.FC = () => {
       const savedGroqKey = await getSetting('groqApiKey', '');
       const savedName = await getSetting('userName', 'User');
       const savedCurrency = await getSetting('currency', 'INR');
+      const savedCity = await getSetting('userCity', '');
       setApiKey(savedKey);
       setGroqApiKey(savedGroqKey);
       setUserName(savedName);
       setCurrency(savedCurrency);
+      setUserCity(savedCity);
     }
     loadSettings();
   }, []);
@@ -34,6 +38,7 @@ export const SettingsView: React.FC = () => {
       await setSetting('groqApiKey', groqApiKey.trim());
       await setSetting('userName', userName.trim());
       await setSetting('currency', currency);
+      await setSetting('userCity', userCity.trim());
       
       setSaveStatus('success');
       setTimeout(() => setSaveStatus(null), 3000);
@@ -112,8 +117,10 @@ export const SettingsView: React.FC = () => {
         // Trigger settings refresh
         const savedName = await getSetting('userName', 'User');
         const savedCurrency = await getSetting('currency', 'INR');
+        const savedCity = await getSetting('userCity', '');
         setUserName(savedName);
         setCurrency(savedCurrency);
+        setUserCity(savedCity);
 
         alert('Database restored successfully!');
       } catch (err) {
@@ -141,6 +148,7 @@ export const SettingsView: React.FC = () => {
       setGroqApiKey('');
       setUserName('User');
       setCurrency('INR');
+      setUserCity('');
       setResetConfirm(false);
       setPurgeSuccess(true);
       setTimeout(() => setPurgeSuccess(false), 4000);
@@ -174,6 +182,18 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) => setUserName(e.target.value)}
                 placeholder="Your name"
                 required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="usercity">City of Residence</label>
+              <input
+                id="usercity"
+                type="text"
+                className="form-input"
+                value={userCity}
+                onChange={(e) => setUserCity(e.target.value)}
+                placeholder="e.g. Bangalore, Mumbai, Kochi"
               />
             </div>
 
@@ -342,284 +362,6 @@ export const SettingsView: React.FC = () => {
         </div>
 
       </div>
-
-      <style>{`
-        .view-container {
-          flex: 1;
-          padding: 40px;
-          height: 100vh;
-          overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-
-        .view-header {
-          margin-bottom: 8px;
-        }
-
-        .view-header h1 {
-          font-size: 2.2rem;
-          font-weight: 800;
-          margin-bottom: 6px;
-        }
-
-        .view-header p {
-          color: var(--text-secondary);
-          font-size: 1rem;
-        }
-
-        .settings-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-          gap: 24px;
-        }
-
-        .settings-card {
-          display: flex;
-          flex-direction: column;
-          padding: 24px;
-        }
-
-        .card-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 16px;
-          margin-bottom: 20px;
-        }
-
-        .card-icon {
-          padding: 6px;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.05);
-        }
-
-        .card-icon.primary-color {
-          color: var(--primary);
-          background: var(--primary-glow);
-        }
-
-        .card-icon.secondary-color {
-          color: var(--secondary);
-          background: var(--secondary-glow);
-        }
-
-        .card-body {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          flex: 1;
-        }
-
-        .card-desc {
-          font-size: 0.9rem;
-          color: var(--text-secondary);
-          line-height: 1.5;
-        }
-
-        .input-group-password {
-          display: flex;
-          position: relative;
-        }
-
-        .password-input {
-          flex: 1;
-          padding-right: 60px;
-        }
-
-        .btn-toggle-password {
-          position: absolute;
-          right: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          font-size: 0.8rem;
-          font-weight: 600;
-          cursor: pointer;
-          font-family: var(--font-body);
-        }
-
-        .btn-toggle-password:hover {
-          color: var(--text-primary);
-        }
-
-        .field-hint {
-          font-size: 0.8rem;
-          color: var(--text-muted);
-          margin-top: 4px;
-        }
-
-        .field-hint a {
-          color: var(--primary);
-          text-decoration: none;
-        }
-
-        .field-hint a:hover {
-          text-decoration: underline;
-        }
-
-        .alert {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          border-radius: var(--border-radius-md);
-          font-size: 0.9rem;
-          margin-top: 8px;
-        }
-
-        .alert-success-box {
-          background: var(--success-glow);
-          border: 1px solid rgba(34, 197, 94, 0.2);
-          color: var(--success);
-        }
-
-        .alert-error-box {
-          background: var(--danger-glow);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          color: var(--danger);
-        }
-
-        .btn-save {
-          align-self: flex-start;
-          margin-top: 8px;
-        }
-
-        .provider-status-banner {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 12px 14px;
-          background: rgba(255,255,255,0.03);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-md);
-        }
-
-        .provider-badge {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
-          border-radius: 20px;
-          font-size: 0.8rem;
-          font-weight: 500;
-        }
-
-        .primary-provider {
-          background: var(--primary-glow);
-          color: var(--primary);
-          border: 1px solid rgba(99, 102, 241, 0.25);
-        }
-
-        .fallback-provider {
-          background: rgba(251, 146, 60, 0.1);
-          color: hsl(30, 95%, 65%);
-          border: 1px solid rgba(251, 146, 60, 0.2);
-        }
-
-        .provider-arrow {
-          color: var(--text-muted);
-          flex-shrink: 0;
-        }
-
-        .banner-hint {
-          margin-top: 0;
-        }
-
-        .badge-primary {
-          display: inline-block;
-          margin-left: 6px;
-          padding: 1px 7px;
-          border-radius: 10px;
-          font-size: 0.7rem;
-          font-weight: 600;
-          background: var(--primary-glow);
-          color: var(--primary);
-          vertical-align: middle;
-        }
-
-        .badge-fallback {
-          display: inline-block;
-          margin-left: 6px;
-          padding: 1px 7px;
-          border-radius: 10px;
-          font-size: 0.7rem;
-          font-weight: 600;
-          background: rgba(251, 146, 60, 0.1);
-          color: hsl(30, 95%, 65%);
-          vertical-align: middle;
-        }
-
-        .backup-actions {
-          display: flex;
-          gap: 12px;
-          margin-top: 8px;
-        }
-
-        .flex-btn {
-          flex: 1;
-        }
-
-        .cursor-pointer {
-          cursor: pointer;
-        }
-
-        .display-none {
-          display: none;
-        }
-
-        .danger-zone {
-          margin-top: 24px;
-          padding-top: 20px;
-          border-top: 1px solid var(--border-glass);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .danger-zone h4 {
-          font-size: 1rem;
-          color: var(--danger);
-          font-weight: 600;
-        }
-
-        .danger-zone p {
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          line-height: 1.4;
-        }
-
-        .danger-color {
-          color: var(--danger);
-        }
-
-        .reset-confirm-box {
-          background: var(--danger-glow);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          border-radius: var(--border-radius-md);
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .reset-confirm-box p {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-weight: 600;
-          color: var(--text-primary);
-        }
-
-        .confirm-buttons {
-          display: flex;
-          gap: 10px;
-        }
-      `}</style>
     </div>
   );
 };

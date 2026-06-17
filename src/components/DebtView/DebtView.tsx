@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting } from '../db/database';
-import type { Debt } from '../db/database';
-import { formatAmount } from '../utils/currency';
+import { db, getSetting } from '../../db/database';
+import type { Debt } from '../../db/database';
+import { formatAmount } from '../../utils/currency';
 import { Plus, X, Trash2, Pencil, CreditCard, Home, Car, Banknote, HelpCircle } from 'lucide-react';
+import './DebtView.css';
+
 
 type DebtType = Debt['type'];
 
@@ -92,9 +95,20 @@ export const DebtView: React.FC = () => {
         </button>
       </header>
 
+      {/* Info Card Banner */}
+      <div className="glass-card debt-info-card">
+        <div className="debt-info-icon">💡</div>
+        <div className="debt-info-content">
+          <strong>How Debt Payoff Tracking Works</strong>
+          <p style={{ margin: 0 }}>
+            Kosha simulates your loan payoff timeline using a standard amortization formula: each month, your EMI first covers the interest due (Outstanding Balance × Monthly Interest Rate), and the remainder reduces your principal.
+          </p>
+        </div>
+      </div>
+
       {/* Summary */}
       {debts.length > 0 && (
-        <div className="glass-card goals-summary">
+        <div className="glass-card goals-summary" style={{ marginBottom: '24px' }}>
           <div className="gs-item">
             <span className="gs-label">Active Debts</span>
             <strong>{debts.length}</strong>
@@ -183,9 +197,9 @@ export const DebtView: React.FC = () => {
       )}
 
       {/* Form Overlay */}
-      {showForm && (
+      {showForm && createPortal(
         <div className="drawer-overlay" onClick={() => setShowForm(false)}>
-          <div className="glass-card drawer-content" onClick={e => e.stopPropagation()}>
+          <div className="glass-card modal-content-centered" onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <h3>{editId ? 'Edit Debt' : 'Add Debt / EMI'}</h3>
               <button className="btn-close" onClick={() => setShowForm(false)}><X size={20} /></button>
@@ -245,24 +259,9 @@ export const DebtView: React.FC = () => {
               </button>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-
-      <style>{`
-        .debt-type-chip {
-          display: inline-flex; align-items: center; gap: 4px;
-          padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600;
-        }
-        .debt-stats-grid {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;
-        }
-        .debt-stat {
-          background: rgba(255,255,255,.03); border: 1px solid var(--border-glass);
-          border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;
-        }
-        .ds-label { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-        .ds-value { font-size: 0.88rem; font-weight: 700; color: var(--text-primary); }
-      `}</style>
     </div>
   );
 };

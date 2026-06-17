@@ -9,7 +9,9 @@ export interface RecurringTransaction {
   averageAmount: number;
   lastDate: string;
   occurrences: number;
+  transactions?: Transaction[];
 }
+
 
 /** Normalise a description for grouping: lowercase, strip numbers & special chars */
 function normalise(desc: string): string {
@@ -79,7 +81,9 @@ export function detectRecurring(transactions: Transaction[]): RecurringTransacti
       averageAmount: Math.round(avgAmount * 100) / 100,
       lastDate: sorted[sorted.length - 1].date,
       occurrences: txs.length,
+      transactions: sorted,
     });
+
   }
 
   // Sort by average amount descending

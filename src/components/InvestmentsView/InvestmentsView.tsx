@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/database';
-import type { Investment } from '../db/database';
+import { db } from '../../db/database';
+import type { Investment } from '../../db/database';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { 
   TrendingUp, 
@@ -20,8 +20,9 @@ import {
   HelpCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { parseZerodhaHoldings } from '../utils/parsers/zerodha_holdings';
-import { parseGenericHoldings, parseGenericCsv } from '../utils/parsers/generic_holdings';
+import { parseZerodhaHoldings } from '../../utils/parsers/zerodha_holdings';
+import { parseGenericHoldings, parseGenericCsv } from '../../utils/parsers/generic_holdings';
+import './InvestmentsView.css';
 
 export const InvestmentsView: React.FC = () => {
   // Navigation & Filtering
@@ -30,6 +31,12 @@ export const InvestmentsView: React.FC = () => {
   // Modal toggle & Mode state
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [modalMode, setModalMode] = useState<'both' | 'import_only' | 'manual_only'>('both');
+  const [openedFromHeader, setOpenedFromHeader] = useState(false);
+  const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
+
+  // Deletion Modal state
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [symbolToDelete, setSymbolToDelete] = useState<string | null>(null);
 
   // Input ref for modal file selector
   const modalFileInputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +140,11 @@ export const InvestmentsView: React.FC = () => {
     
     // If we came directly from the empty state card, cancel should close the modal
     if (modalMode === 'import_only') {
-      setShowUpdateModal(false);
+      if (openedFromHeader) {
+        setModalMode('both');
+      } else {
+        setShowUpdateModal(false);
+      }
     }
   };
 
@@ -172,18 +183,25 @@ export const InvestmentsView: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Delete this holding from portfolio?')) {
-      try {
-        await db.investments.delete(id);
-      } catch (err) {
-        console.error(err);
-      }
+  const handleDeleteClick = (id: string) => {
+    setSymbolToDelete(id);
+    setShowDeleteConfirmModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!symbolToDelete) return;
+    try {
+      await db.investments.delete(symbolToDelete);
+      setShowDeleteConfirmModal(false);
+      setSymbolToDelete(null);
+    } catch (err) {
+      console.error(err);
     }
   };
 
   const handleEmptyStateImportClick = () => {
     setSelectedBroker('zerodha'); // Default to Zerodha
+    setOpenedFromHeader(false);
     setModalMode('import_only');
     setShowUpdateModal(true);
   };
@@ -201,22 +219,55 @@ export const InvestmentsView: React.FC = () => {
   const totalPnL = totalValue - totalCost;
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
-  // Chart Data preparation (Top 5 holdings + rest combined as 'Others')
-  const chartData = [...filteredInvestments]
-    .map(inv => ({
-      name: inv.symbol,
-      value: Math.round(inv.quantity * (inv.currentPrice || inv.avgCost))
+  const toTitleCase = (str: string) => {
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  // Chart Data preparation (Grouped by Sector)
+  const sectorGroups: { [key: string]: number } = {};
+  filteredInvestments.forEach(inv => {
+    let sectorName = '';
+    if (inv.type === 'mutual_fund') {
+      sectorName = 'MF';
+    } else {
+      sectorName = inv.sector ? inv.sector.trim() : '';
+      if (sectorName === '-' || sectorName === '') {
+        sectorName = 'Other Sectors';
+      } else {
+        sectorName = toTitleCase(sectorName);
+      }
+    }
+    const val = Math.round(inv.quantity * (inv.currentPrice || inv.avgCost));
+    sectorGroups[sectorName] = (sectorGroups[sectorName] || 0) + val;
+  });
+
+  const chartData = Object.keys(sectorGroups)
+    .map(name => ({
+      name,
+      value: sectorGroups[name]
     }))
+    .filter(item => item.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  const topHoldings = chartData.slice(0, 5);
-  const otherHoldingsSum = chartData.slice(5).reduce((sum, item) => sum + item.value, 0);
-  
-  if (otherHoldingsSum > 0) {
-    topHoldings.push({ name: 'Others', value: otherHoldingsSum });
-  }
+  // Display all sectors (no slice or "Others" grouping)
+  const topHoldings = chartData;
 
-  const COLORS = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#6b7280'];
+  const COLORS = [
+    '#8b5cf6', // Purple
+    '#06b6d4', // Cyan
+    '#10b981', // Emerald
+    '#f59e0b', // Amber
+    '#ec4899', // Pink
+    '#3b82f6', // Blue
+    '#14b8a6', // Teal
+    '#f43f5e', // Rose
+    '#a855f7', // Purple-light
+    '#6b7280'  // Gray
+  ];
 
   // REUSABLE SUB-CONTENT RENDERERS
   const renderManualFormContent = () => (
@@ -345,7 +396,7 @@ export const InvestmentsView: React.FC = () => {
         <div className="header-actions">
           {/* Renders ONLY when there are active holdings in the DB */}
           {investments.length > 0 && (
-            <button className="btn-premium-glow" onClick={() => { setModalMode('both'); setShowUpdateModal(true); }}>
+            <button className="btn-premium-glow" onClick={() => { setOpenedFromHeader(true); setModalMode('both'); setShowUpdateModal(true); }}>
               <FileUp size={16} />
               <span>Update Latest Investments</span>
             </button>
@@ -406,7 +457,7 @@ export const InvestmentsView: React.FC = () => {
             </div>
 
             {/* Manual Action Card (Empty State) - Opens manual-only modal directly */}
-            <div className="glass-card action-card cursor-pointer" onClick={() => { setManualType('equity'); setModalMode('manual_only'); setShowUpdateModal(true); }}>
+            <div className="glass-card action-card cursor-pointer" onClick={() => { setManualType('equity'); setOpenedFromHeader(false); setModalMode('manual_only'); setShowUpdateModal(true); }}>
               <div className="action-icon-wrap bg-purple-glow">
                 <Plus size={24} />
               </div>
@@ -462,9 +513,12 @@ export const InvestmentsView: React.FC = () => {
             <div className="visuals-grid">
               {/* Pie Chart Card */}
               <div className="glass-card chart-card-wrapper">
-                <div className="card-header">
-                  <PieChartIcon size={18} className="secondary-color" />
-                  <h3>Asset Allocation</h3>
+                <div className="card-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <PieChartIcon size={18} className="secondary-color" />
+                    <h3 style={{ margin: 0 }}>Asset Allocation</h3>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500, paddingLeft: '26px' }}>Sector-wise Distribution</span>
                 </div>
                 <div className="pie-chart-container">
                   <ResponsiveContainer width="100%" height={260}>
@@ -473,14 +527,39 @@ export const InvestmentsView: React.FC = () => {
                         data={topHoldings}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={85}
-                        paddingAngle={5}
+                        innerRadius={50}
+                        outerRadius={70}
+                        paddingAngle={4}
                         dataKey="value"
+                        labelLine={{ stroke: 'rgba(255, 255, 255, 0.25)', strokeWidth: 1 }}
+                        label={({ percent }) => `${((percent || 0) * 100).toFixed(1)}%`}
+                        onMouseEnter={(_, index) => {
+                          if (topHoldings[index]) {
+                            setHoveredSymbol(topHoldings[index].name);
+                          }
+                        }}
+                        onMouseLeave={() => setHoveredSymbol(null)}
                       >
-                        {topHoldings.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
+                        {topHoldings.map((entry, index) => {
+                          const isSliceHighlighted = (sliceName: string) => {
+                            if (!hoveredSymbol) return true;
+                            return hoveredSymbol === sliceName;
+                          };
+
+                          const opacity = isSliceHighlighted(entry.name) ? 1.0 : 0.25;
+
+                          return (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={COLORS[index % COLORS.length]} 
+                              style={{ 
+                                opacity, 
+                                transition: 'opacity 0.2s ease', 
+                                cursor: 'pointer'
+                              }}
+                            />
+                          );
+                        })}
                       </Pie>
                       <Tooltip 
                         formatter={(value: any) => [`₹ ${Number(value).toLocaleString()}`, 'Value']}
@@ -495,13 +574,26 @@ export const InvestmentsView: React.FC = () => {
                   </ResponsiveContainer>
 
                   <div className="pie-legend">
-                    {topHoldings.map((entry, idx) => (
-                      <div key={entry.name} className="legend-item">
-                        <span className="legend-dot" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                        <span className="legend-name" title={entry.name}>{entry.name}</span>
-                        <span className="legend-value">{totalValue > 0 ? ((entry.value / totalValue) * 100).toFixed(1) : 0}%</span>
-                      </div>
-                    ))}
+                    {topHoldings.map((entry, idx) => {
+                      const isLegendHighlighted = !hoveredSymbol || hoveredSymbol === entry.name;
+                      const opacity = isLegendHighlighted ? 1.0 : 0.35;
+                      return (
+                        <div 
+                          key={entry.name} 
+                          className="legend-item cursor-pointer"
+                          style={{ 
+                            opacity, 
+                            transition: 'opacity 0.2s ease'
+                          }}
+                          onMouseEnter={() => setHoveredSymbol(entry.name)}
+                          onMouseLeave={() => setHoveredSymbol(null)}
+                        >
+                          <span className="legend-dot" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                          <span className="legend-name" title={entry.name}>{entry.name}</span>
+                          <span className="legend-value">{totalValue > 0 ? ((entry.value / totalValue) * 100).toFixed(1) : 0}%</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -530,15 +622,61 @@ export const InvestmentsView: React.FC = () => {
                         const value = inv.quantity * (inv.currentPrice || inv.avgCost);
                         const pnl = value - cost;
                         const pct = cost > 0 ? (pnl / cost) * 100 : 0;
+
+                        const isRowHighlighted = () => {
+                           if (!hoveredSymbol) return true;
+                           
+                           let invSector = '';
+                           if (inv.type === 'mutual_fund') {
+                             invSector = 'MF';
+                           } else {
+                             invSector = inv.sector ? inv.sector.trim() : '';
+                             if (invSector === '-' || invSector === '') {
+                               invSector = 'Other Sectors';
+                             } else {
+                               invSector = toTitleCase(invSector);
+                             }
+                           }
+
+                           return hoveredSymbol === invSector;
+                         };
+
+                        const rowClass = `table-row ${isRowHighlighted() ? 'row-active' : 'row-dimmed'}`;
+
+                        let displaySector = '';
+                        if (inv.type === 'mutual_fund') {
+                          displaySector = 'MF';
+                        } else if (inv.sector && inv.sector !== '-') {
+                          displaySector = toTitleCase(inv.sector.trim());
+                        }
+
                         return (
-                          <tr key={inv.symbol} className="table-row">
+                          <tr 
+                            key={inv.symbol} 
+                            className={rowClass}
+                            onMouseEnter={() => {
+                               let invSector = '';
+                               if (inv.type === 'mutual_fund') {
+                                 invSector = 'MF';
+                               } else {
+                                 invSector = inv.sector ? inv.sector.trim() : '';
+                                 if (invSector === '-' || invSector === '') {
+                                   invSector = 'Other Sectors';
+                                 } else {
+                                   invSector = toTitleCase(invSector);
+                                 }
+                               }
+                               setHoveredSymbol(invSector);
+                             }}
+                            onMouseLeave={() => setHoveredSymbol(null)}
+                          >
                             <td>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span className="stock-ticker">{inv.symbol}</span>
                                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '8px' }}>
                                   <span>{inv.type === 'mutual_fund' ? 'Mutual Fund' : 'Stock'}</span>
                                   {inv.isin && <span>• {inv.isin}</span>}
-                                  {inv.sector && inv.sector !== '-' && <span>• {inv.sector}</span>}
+                                  {displaySector && <span>• {displaySector}</span>}
                                 </span>
                               </div>
                             </td>
@@ -553,7 +691,7 @@ export const InvestmentsView: React.FC = () => {
                               <span className="pnl-pct-label">({pnl >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>
                             </td>
                             <td className="text-center">
-                              <button className="btn-delete-action" onClick={() => inv.symbol && handleDelete(inv.symbol)}>
+                              <button className="btn-delete-action" onClick={() => inv.symbol && handleDeleteClick(inv.symbol)}>
                                 <Trash2 size={16} />
                               </button>
                             </td>
@@ -682,9 +820,9 @@ export const InvestmentsView: React.FC = () => {
                       />
                     </label>
                   )}
-                  {parsingStatus !== 'imported' && (
+                   {parsingStatus !== 'imported' && (
                     <button className="btn btn-secondary btn-full" onClick={handleCancelImport}>
-                      {modalMode === 'import_only' ? 'Cancel' : 'Back to options'}
+                      {modalMode === 'import_only' && !openedFromHeader ? 'Cancel' : 'Back to options'}
                     </button>
                   )}
                 </div>
@@ -697,6 +835,15 @@ export const InvestmentsView: React.FC = () => {
                   <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Enter Asset Details</h4>
                 </div>
                 {renderManualFormContent()}
+                {openedFromHeader && (
+                  <button 
+                    className="btn btn-secondary btn-full" 
+                    style={{ marginTop: '12px', width: '100%' }}
+                    onClick={() => setModalMode('both')}
+                  >
+                    Back to options
+                  </button>
+                )}
               </div>
             ) : modalMode === 'import_only' ? (
               // File Upload Only layout
@@ -706,32 +853,51 @@ export const InvestmentsView: React.FC = () => {
                   <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Select Statement File</h4>
                 </div>
                 {renderUploadCardContent()}
+                {openedFromHeader && (
+                  <button 
+                    className="btn btn-secondary btn-full" 
+                    style={{ marginTop: '12px', width: '100%' }}
+                    onClick={() => setModalMode('both')}
+                  >
+                    Back to options
+                  </button>
+                )}
               </div>
             ) : (
               // Both side-by-side (modalMode === 'both')
               <div className="modal-dual-cards">
-                {/* File Upload Card */}
-                <div className="modal-sub-card">
+                {/* File Upload Option Card */}
+                <div className="modal-sub-card action-card cursor-pointer" onClick={() => setModalMode('import_only')}>
                   <div className="sub-card-header">
-                    <FileSpreadsheet size={20} className="secondary-color" />
-                    <h4>Import Statement File</h4>
+                    <div className="action-icon-wrap bg-cyan-glow" style={{ padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FileSpreadsheet size={20} className="secondary-color" />
+                    </div>
+                    <h4>Import Broker Statement</h4>
                   </div>
-                  <p className="sub-card-desc">
-                    Upload your holdings report to bulk update. Supports custom sheet logic for Zerodha statements.
+                  <p className="sub-card-desc" style={{ flexGrow: 1 }}>
+                    Directly upload your holdings `.xlsx` spreadsheet or `.csv` export downloaded from Zerodha Console or generic files.
                   </p>
-                  {renderUploadCardContent()}
+                  <div className="upload-dropzone-dummy" style={{ marginTop: 'auto' }}>
+                    <FileUp size={20} style={{ color: 'var(--secondary)' }} />
+                    <span>Open Statement Upload Dialog</span>
+                  </div>
                 </div>
 
-                {/* Manual Add Card */}
-                <div className="modal-sub-card">
+                {/* Manual Add Option Card */}
+                <div className="modal-sub-card action-card cursor-pointer" onClick={() => { setManualType('equity'); setModalMode('manual_only'); }}>
                   <div className="sub-card-header">
-                    <Plus size={20} className="primary-color" />
-                    <h4>Log Holding Manually</h4>
+                    <div className="action-icon-wrap bg-purple-glow" style={{ padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Plus size={20} className="primary-color" />
+                    </div>
+                    <h4>Add Holdings Manually</h4>
                   </div>
-                  <p className="sub-card-desc">
-                    Manually add a single stock or mutual fund holding to your tracking list.
+                  <p className="sub-card-desc" style={{ flexGrow: 1 }}>
+                    Manually enter stock symbols or mutual fund names, quantities, and average purchase costs.
                   </p>
-                  {renderManualFormContent()}
+                  <div className="manual-entry-zone-dummy" style={{ marginTop: 'auto' }}>
+                    <Plus size={20} style={{ color: 'var(--primary)' }} />
+                    <span>Open Manual Asset Form</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -740,525 +906,42 @@ export const InvestmentsView: React.FC = () => {
         document.body
       )}
 
-      <style>{`
-        .display-none {
-          display: none !important;
-        }
-
-        .btn-delete-action {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 6px;
-          transition: all 0.2s ease;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .btn-delete-action:hover {
-          color: var(--danger);
-          background: var(--danger-glow);
-        }
-
-        /* Core View Layout and Scroll alignment */
-        .view-container {
-          flex: 1; 
-          padding: 32px 40px; 
-          height: 100vh;
-          overflow-y: auto; 
-          overflow-x: hidden;
-          display: flex; 
-          flex-direction: column; 
-          gap: 24px;
-        }
-
-        .view-header-row {
-          display: flex; 
-          align-items: flex-start;
-          justify-content: space-between; 
-          flex-wrap: wrap; 
-          gap: 12px;
-        }
-
-        /* Premium Glowing Header Button */
-        .btn-premium-glow {
-          position: relative;
-          background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          color: var(--text-primary);
-          padding: 10px 20px;
-          border-radius: var(--border-radius-md);
-          font-family: var(--font-body);
-          font-size: 0.88rem;
-          font-weight: 600;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-          overflow: hidden;
-          outline: none;
-        }
-
-        .btn-premium-glow::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-          opacity: 0;
-          z-index: 1;
-          transition: opacity 0.3s ease;
-        }
-
-        .btn-premium-glow:hover {
-          transform: translateY(-2px);
-          border-color: rgba(255, 255, 255, 0.25);
-          color: #fff;
-          box-shadow: 
-            0 0 20px rgba(139, 92, 246, 0.25), 
-            0 0 40px rgba(6, 182, 212, 0.15);
-        }
-
-        .btn-premium-glow:hover::before {
-          opacity: 0.15;
-        }
-
-        .btn-premium-glow > * {
-          position: relative;
-          z-index: 2;
-        }
-
-        /* Investments Tabs Layout */
-        .investments-tabs-row {
-          margin-bottom: 24px;
-        }
-        .investments-tabs {
-          display: flex;
-          gap: 6px;
-          background: rgba(255, 255, 255, 0.02);
-          padding: 4px;
-          border-radius: 8px;
-          border: 1px solid var(--border-glass);
-          width: fit-content;
-        }
-        .tab-btn {
-          background: transparent;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 6px;
-          color: var(--text-secondary);
-          font-size: 0.82rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          outline: none;
-        }
-        .tab-btn:hover {
-          color: var(--text-primary);
-          background: rgba(255, 255, 255, 0.03);
-        }
-        .tab-btn.active {
-          background: var(--primary);
-          color: #fff;
-          box-shadow: 0 4px 12px var(--primary-glow);
-        }
-
-        /* Stats Row */
-        .stats-row {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 20px;
-          margin-bottom: 24px;
-        }
-        .stat-card {
-          padding: 20px 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .stat-label {
-          font-size: 0.82rem;
-          color: var(--text-secondary);
-          font-weight: 500;
-        }
-        .stat-value {
-          font-family: var(--font-heading);
-          font-size: 1.7rem;
-          font-weight: 700;
-        }
-        .text-glow-cyan {
-          color: var(--secondary);
-          text-shadow: 0 0 15px var(--secondary-glow);
-        }
-        .stat-value-group {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .pnl-percent {
-          font-size: 0.8rem;
-        }
-        .badge-success {
-          background: var(--success-glow);
-          color: var(--success);
-          border: 1px solid rgba(34, 197, 94, 0.1);
-        }
-        .badge-danger {
-          background: var(--danger-glow);
-          color: var(--danger);
-          border: 1px solid rgba(239, 68, 68, 0.1);
-        }
-        .success-color {
-          color: var(--success) !important;
-        }
-        .danger-color {
-          color: var(--danger) !important;
-        }
-        .warning-color {
-          color: var(--warning) !important;
-        }
-
-        /* Visuals Grid */
-        .visuals-grid {
-          display: grid;
-          grid-template-columns: 360px 1fr;
-          gap: 24px;
-          align-items: start;
-        }
-        @media (max-width: 1024px) {
-          .visuals-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-        .chart-card-wrapper {
-          padding: 24px;
-        }
-        .pie-chart-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          margin-top: 16px;
-        }
-        .pie-legend {
-          width: 100%;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-          margin-top: 16px;
-          border-top: 1px solid var(--border-glass);
-          padding-top: 16px;
-          max-height: 180px;
-          overflow-y: auto;
-        }
-        .legend-item {
-          display: flex;
-          align-items: center;
-          font-size: 0.8rem;
-          gap: 6px;
-        }
-        .legend-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-        .legend-name {
-          color: var(--text-secondary);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 180px;
-        }
-        .legend-value {
-          color: var(--text-primary);
-          font-weight: 600;
-          margin-left: auto;
-        }
-
-        /* Holdings Table */
-        .table-card {
-          padding: 24px;
-          display: flex;
-          flex-direction: column;
-        }
-        .holdings-table {
-          width: 100%;
-          border-collapse: collapse;
-          text-align: left;
-        }
-        .holdings-table th {
-          padding: 12px;
-          font-size: 0.78rem;
-          color: var(--text-muted);
-          border-bottom: 1px solid var(--border-glass);
-          text-transform: uppercase;
-          font-weight: 600;
-        }
-        .holdings-table td {
-          padding: 14px 12px;
-          font-size: 0.85rem;
-          border-bottom: 1px solid var(--border-glass);
-          vertical-align: middle;
-        }
-        .stock-ticker {
-          font-weight: 700;
-          color: var(--text-primary);
-          font-family: var(--font-heading);
-          font-size: 0.95rem;
-        }
-        .font-bold {
-          font-weight: 600;
-        }
-        .pnl-row-value {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-        }
-        .pnl-pct-label {
-          display: block;
-          font-size: 0.72rem;
-          color: var(--text-muted);
-          font-weight: 500;
-        }
-        
-        /* Unified Modal Style */
-        .modal-content-centered {
-          width: 780px;
-          max-width: 95vw;
-          max-height: 90vh;
-          overflow-y: auto;
-          background: rgba(13, 17, 27, 0.94);
-          backdrop-filter: blur(25px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 16px;
-          box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-          display: flex;
-          flex-direction: column;
-          animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-          transition: width 0.3s ease, max-width 0.3s ease;
-        }
-        @media (max-width: 768px) {
-          .modal-content-centered {
-            width: 480px;
-          }
-        }
-        
-        .modal-content-centered.modal-narrow {
-          width: 480px;
-        }
-        
-        .modal-dual-cards {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 24px;
-          padding: 24px;
-          background: rgba(0, 0, 0, 0.2);
-        }
-        @media (max-width: 768px) {
-          .modal-dual-cards {
-            grid-template-columns: 1fr;
-            gap: 16px;
-            max-height: 70vh;
-            overflow-y: auto;
-          }
-        }
-        
-        .modal-sub-card {
-          background: rgba(255, 255, 255, 0.015);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          border-radius: 12px;
-          padding: 24px 20px;
-          display: flex;
-          flex-direction: column;
-          min-height: 340px;
-          transition: all 0.3s ease;
-        }
-        .modal-sub-card:hover {
-          border-color: rgba(255, 255, 255, 0.08);
-          background: rgba(255, 255, 255, 0.03);
-          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
-        }
-        
-        .sub-card-header {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 8px;
-        }
-        .sub-card-header h4 {
-          font-size: 1rem;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-        .sub-card-desc {
-          font-size: 0.78rem;
-          color: var(--text-secondary);
-          line-height: 1.4;
-          margin-bottom: 8px;
-        }
-        .upload-dropzone {
-          border: 1px dashed rgba(6, 182, 212, 0.25);
-          border-radius: 8px;
-          padding: 24px 16px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          background: rgba(6, 182, 212, 0.01);
-          transition: all 0.2s ease;
-          text-align: center;
-        }
-        .upload-dropzone:hover {
-          background: rgba(6, 182, 212, 0.03);
-          border-color: var(--secondary);
-          box-shadow: 0 0 15px var(--secondary-glow);
-        }
-        
-        .upload-dropzone-dummy, .manual-entry-zone-dummy {
-          width: 100%;
-          border: 1px dashed var(--border-glass);
-          border-radius: 8px;
-          padding: 24px 16px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          background: rgba(255, 255, 255, 0.01);
-          color: var(--text-muted);
-          font-size: 0.8rem;
-          margin-top: 16px;
-          text-align: center;
-          transition: all 0.2s ease;
-        }
-        .action-card:hover .upload-dropzone-dummy {
-          border-color: var(--secondary);
-          background: rgba(6, 182, 212, 0.03);
-          color: var(--secondary);
-        }
-        .action-card:hover .manual-entry-zone-dummy {
-          border-color: var(--primary);
-          background: rgba(139, 92, 246, 0.03);
-          color: var(--primary);
-        }
-        
-        /* Modal Import Flow Screen */
-        .modal-import-flow {
-          padding: 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-        .import-file-meta {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 14px;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border-glass);
-        }
-        .import-file-name {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: var(--text-primary);
-          white-space: nowrap;
-          text-overflow: ellipsis;
-          overflow: hidden;
-          max-width: 480px;
-        }
-        
-        .import-status-box {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 16px;
-          border-radius: 8px;
-          font-size: 0.88rem;
-        }
-        .import-status-box.loading {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-glass);
-          color: var(--text-secondary);
-        }
-        .import-status-box.success {
-          background: rgba(16, 185, 129, 0.06);
-          border: 1px solid rgba(16, 185, 129, 0.2);
-          color: var(--success);
-        }
-        .import-status-box.complete {
-          background: rgba(16, 185, 129, 0.08);
-          border: 1px solid var(--success);
-          color: var(--text-primary);
-          flex-direction: column;
-          text-align: center;
-          padding: 24px;
-          gap: 16px;
-        }
-        .import-status-box.error {
-          background: rgba(239, 68, 68, 0.06);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          color: var(--danger);
-        }
-        
-        .complete-check-icon {
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
-          background: rgba(16, 185, 129, 0.1);
-          border: 2px solid var(--success);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--success);
-          font-size: 1.8rem;
-          font-weight: bold;
-          box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
-          animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-        }
-        
-        .import-warning-box {
-          padding: 12px 14px;
-          border-radius: 8px;
-          background: rgba(245, 158, 11, 0.06);
-          border: 1px solid rgba(245, 158, 11, 0.18);
-          font-size: 0.78rem;
-          color: var(--warning);
-          line-height: 1.4;
-          display: flex;
-          align-items: flex-start;
-          gap: 8px;
-        }
-        
-        .import-modal-footer {
-          display: flex;
-          gap: 12px;
-          margin-top: 12px;
-        }
-        .import-modal-footer btn, .import-modal-footer label {
-          flex: 1;
-        }
-        
-        .spinner {
-          width: 24px;
-          height: 24px;
-          border: 2px solid var(--border-glass);
-          border-top-color: var(--secondary);
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      {showDeleteConfirmModal && symbolToDelete && createPortal(
+        <div className="drawer-overlay" onClick={() => setShowDeleteConfirmModal(false)}>
+          <div className="glass-card modal-content-centered modal-narrow delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={22} className="danger-color" style={{ color: 'var(--danger)' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Confirm Deletion</h3>
+              </div>
+              <button className="btn-close" onClick={() => setShowDeleteConfirmModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                Are you sure you want to delete <strong style={{ color: 'var(--danger)', textShadow: '0 0 10px rgba(239, 68, 68, 0.2)' }}>{symbolToDelete}</strong> from your portfolio?
+              </p>
+              
+              <div style={{ padding: '12px 14px 12px 18px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', fontSize: '0.78rem', color: 'var(--danger)', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>This action is permanent and will completely remove all quantities and cost history for this asset from your dashboard.</span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button className="btn btn-secondary btn-full" onClick={() => setShowDeleteConfirmModal(false)} style={{ flex: 1, margin: 0 }}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger btn-full" onClick={confirmDelete} style={{ flex: 1, margin: 0, background: 'var(--danger)', color: '#fff', border: 'none' }}>
+                  Delete Holding
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
