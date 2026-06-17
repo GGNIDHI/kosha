@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting } from '../db/database';
-import { computeHealthScore } from '../utils/healthScore';
-import { detectRecurring } from '../utils/recurringDetector';
+import { db, getSetting } from '../../db/database';
+import { computeHealthScore } from '../../utils/healthScore';
+import { detectRecurring } from '../../utils/recurringDetector';
 import { Sparkles, Loader2, RefreshCw, TrendingDown, TrendingUp, Shield, Clock } from 'lucide-react';
 
-import { generateInsightsWithGroq } from '../services/groq';
-import { buildInsightsPrompt } from '../services/insightsPrompt';
-import { fetchLatestMacroContext, MACRO_DEFINITIONS, DEFAULT_MACRO_CONTEXT } from '../services/macroContext';
-import type { IndianMacroContext } from '../services/macroContext';
+import { generateInsightsWithGroq } from '../../services/groq';
+import { buildInsightsPrompt } from '../../services/insightsPrompt';
+import { fetchLatestMacroContext, MACRO_DEFINITIONS, DEFAULT_MACRO_CONTEXT } from '../../services/macroContext';
+import type { IndianMacroContext } from '../../services/macroContext';
+import './InsightsView.css';
 
 const TYPE_META = {
   positive: { icon: <TrendingUp size={16} />, colour: '#22c55e', bg: 'rgba(34,197,94,0.08)' },
@@ -145,7 +146,6 @@ export const InsightsView: React.FC = () => {
     });
   }, []);
 
-
   const buildContext = () => {
     const { transactions, budgets, salarySlips, investments, goals, debts } = data;
     const today = new Date();
@@ -219,7 +219,7 @@ export const InsightsView: React.FC = () => {
       topCategoriesAllTime: catBreakdownAllTime,
       averageMonthlySpendingByCategory: catAverages,
       netWorth: { cash, portfolio, total: cash + portfolio },
-      debt: { totalOutstanding: totalDebt, monthlyEmi: debts.reduce((s, d) => s + d.emiAmount, 0) },
+      debt: { totalOutstanding: totalDebt, monthlyEmi: debts.reduce((s, d) => s + d.outstandingAmount, 0) },
       recurringSubscriptions: { count: recurring.length, monthlyTotal: recurring.filter(r => r.frequency === 'monthly').reduce((s, r) => s + r.averageAmount, 0) },
       budgetCompliance,
       healthScore: { total: hs.total, grade: hs.grade },
@@ -568,325 +568,6 @@ export const InsightsView: React.FC = () => {
           </div>
         </div>
       )}
-
-      <style>{`
-        .view-container {
-          flex: 1; 
-          padding: 40px 48px 48px 48px; 
-          height: 100%;
-          overflow-y: auto; 
-          overflow-x: hidden;
-          display: flex; 
-          flex-direction: column; 
-          gap: 28px;
-        }
-
-        .view-header-row {
-          display: flex; 
-          align-items: center; 
-          justify-content: space-between; 
-          flex-wrap: wrap; 
-          gap: 20px;
-          margin-bottom: 12px;
-          border-bottom: 1px solid var(--border-glass);
-          padding-bottom: 20px;
-        }
-        .insights-last-updated {
-          display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
-          font-size: 0.78rem; color: var(--text-muted); margin-top: -16px;
-        }
-        .provider-tag {
-          padding: 1px 6px;
-          border-radius: 4px;
-          background: rgba(255, 255, 255, 0.05);
-          font-size: 0.72rem;
-          color: var(--text-secondary);
-          border: 1px solid var(--border-glass);
-        }
-        .confidence-tag {
-          padding: 2px 8px;
-          border-radius: 99px;
-          font-size: 0.72rem;
-          font-weight: 600;
-          display: inline-flex;
-          align-items: center;
-        }
-        .confidence-low {
-          background: rgba(239, 68, 68, 0.1);
-          color: #ef4444;
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        .confidence-moderate {
-          background: rgba(249, 115, 22, 0.1);
-          color: #f97316;
-          border: 1px solid rgba(249, 115, 22, 0.2);
-        }
-        .confidence-high {
-          background: rgba(34, 197, 94, 0.1);
-          color: #22c55e;
-          border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-        .insights-loading-card {
-          display: flex; flex-direction: column; align-items: center;
-          gap: 16px; padding: 48px; text-align: center;
-          color: var(--text-muted); font-size: 0.95rem;
-        }
-        .insights-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 16px;
-        }
-        .insight-card { padding: 20px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-glass); }
-        .insight-type-badge {
-          display: inline-flex; align-items: center; gap: 6px;
-          padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 700;
-          align-self: flex-start;
-        }
-        .insight-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; }
-        .insight-body { font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin: 0; }
-        .spin { animation: spin 1.2s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .error-banner { padding: 14px 18px; border: 1px solid rgba(239,68,68,.2); color: #ef4444; font-size: 0.9rem; }
-
-        .macro-source-panel {
-          margin-bottom: 24px;
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-lg);
-          overflow: hidden;
-        }
-        .macro-panel-header-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: transparent;
-          padding: 14px 24px;
-          gap: 16px;
-        }
-        .macro-panel-toggle-btn {
-          background: transparent;
-          border: none;
-          color: var(--text-primary);
-          font-family: var(--font-heading);
-          font-size: 1.02rem;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          cursor: pointer;
-          flex: 1;
-          text-align: left;
-          padding: 8px 0;
-          transition: var(--transition-smooth);
-        }
-        .macro-toggle-banner {
-          font-size: 0.78rem;
-          color: var(--text-muted);
-          background: rgba(255, 255, 255, 0.05);
-          padding: 3px 10px;
-          border-radius: 99px;
-          font-weight: 500;
-          transition: var(--transition-smooth);
-        }
-        .macro-panel-toggle-btn:hover .macro-toggle-banner {
-          background: rgba(255, 255, 255, 0.1);
-          color: var(--text-primary);
-        }
-        .macro-refresh-btn {
-          padding: 6px 12px;
-          font-size: 0.75rem;
-          height: 30px;
-          gap: 6px;
-          border-radius: var(--border-radius-sm);
-          border: 1px solid var(--border-glass);
-          background: rgba(255, 255, 255, 0.03);
-          color: var(--text-secondary);
-          display: flex;
-          align-items: center;
-          cursor: pointer;
-          transition: var(--transition-smooth);
-        }
-        .macro-refresh-btn:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.08);
-          color: var(--text-primary);
-          border-color: rgba(255, 255, 255, 0.15);
-        }
-        .macro-refresh-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .macro-panel-body {
-          padding: 0 24px 24px 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          border-top: 1px solid var(--border-glass);
-          padding-top: 20px;
-          animation: fadeIn 0.3s ease-in-out;
-        }
-        .macro-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 20px;
-        }
-        .macro-item {
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          min-height: 155px;
-          padding: 20px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-lg);
-          transition: var(--transition-smooth);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .macro-item:hover {
-          background: rgba(255, 255, 255, 0.04);
-          border-color: rgba(255, 255, 255, 0.15);
-          transform: translateY(-2px);
-        }
-        .macro-header {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .macro-label {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .macro-val {
-          font-size: 1.35rem;
-          color: var(--text-primary);
-          font-weight: 700;
-          margin-top: 4px;
-          word-break: break-word;
-          white-space: normal;
-          line-height: 1.2;
-        }
-        .macro-desc {
-          font-size: 0.76rem;
-          color: var(--text-secondary);
-          line-height: 1.45;
-          margin-top: 12px;
-          border-top: 1px solid rgba(255, 255, 255, 0.05);
-          padding-top: 8px;
-        }
-        .macro-meta-info {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          margin-top: 8px;
-          border-top: 1px solid var(--border-glass);
-          padding-top: 12px;
-          gap: 12px;
-        }
-        .macro-meta-info span {
-          max-width: 100%;
-          word-break: break-word;
-          line-height: 1.5;
-        }
-
-        /* Modal Overlay Styles */
-        .macro-modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.75);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 2000;
-          padding: 24px;
-        }
-        .macro-modal-content {
-          width: 100%;
-          max-width: 920px;
-          background: #111113;
-          border: 1px solid var(--border-glass);
-          border-radius: var(--border-radius-lg);
-          box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
-          display: flex;
-          flex-direction: column;
-          max-height: 85vh;
-          overflow: hidden;
-          animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes slideUp {
-          from { transform: translateY(15px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        .macro-modal-header {
-          padding: 24px;
-          border-bottom: 1px solid var(--border-glass);
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 16px;
-        }
-        .macro-modal-header h2 {
-          margin: 0;
-          font-size: 1.35rem;
-          color: var(--text-primary);
-        }
-        .macro-modal-header p {
-          margin: 4px 0 0 0;
-          font-size: 0.85rem;
-          color: var(--text-muted);
-        }
-        .macro-modal-close-btn {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          font-size: 1.8rem;
-          line-height: 1;
-          cursor: pointer;
-          transition: var(--transition-smooth);
-          padding: 0 4px;
-        }
-        .macro-modal-close-btn:hover {
-          color: var(--text-primary);
-        }
-        .macro-modal-body {
-          padding: 24px;
-          overflow-y: auto;
-          flex: 1;
-        }
-        .macro-title-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          width: 100%;
-          gap: 8px;
-        }
-        .macro-badge {
-          font-size: 0.65rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-          padding: 2px 8px;
-          border-radius: 4px;
-        }
-        .macro-badge.old-regime {
-          background: rgba(239, 68, 68, 0.1);
-          color: #ef4444;
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        .macro-badge.new-regime {
-          background: rgba(59, 130, 246, 0.1);
-          color: #3b82f6;
-          border: 1px solid rgba(59, 130, 246, 0.2);
-        }
-      `}</style>
     </div>
   );
 };
