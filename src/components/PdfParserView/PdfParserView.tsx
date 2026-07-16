@@ -227,7 +227,7 @@ export const PdfParserView: React.FC = () => {
               const rawTxs = await parseChunkWithGemini(pages[i], i, totalPages, apiKey!, currentConfig.model);
               pageTxs = rawTxs.map((tx: any) => ({
                 ...tx,
-                id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                id: tx.id || `tx-${crypto.randomUUID()}`,
                 source: 'bank_statement' as const,
                 category: tx.category || 'Others',
                 pdfName: file!.name,
@@ -458,7 +458,7 @@ export const PdfParserView: React.FC = () => {
         const toInsert = parsedTransactions.map(tx => ({
           ...tx,
           date: normalizeDate(tx.date),
-          id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          id: tx.id || `tx-${crypto.randomUUID()}`,
           pdfSourceId,
         }));
 
@@ -514,7 +514,7 @@ export const PdfParserView: React.FC = () => {
         const slipMonth = monthNames[parsedSalarySlip.month - 1] || 'Salary';
 
         const salaryTx: Transaction = {
-          id: 'sal-' + Date.now().toString(),
+          id: 'sal-' + crypto.randomUUID(),
           date: `${parsedSalarySlip.year}-${String(parsedSalarySlip.month).padStart(2, '0')}-01`,
           description: `Salary Credited (${slipMonth} ${parsedSalarySlip.year})`,
           amount: parsedSalarySlip.netPay,

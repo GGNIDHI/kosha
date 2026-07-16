@@ -542,3 +542,22 @@
   padding: 10px;
 }
 
+.btn-edit-action {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: var(--transition-smooth);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-edit-action:hover {
+  color: var(--primary);
+  background: var(--primary-glow);
+}
+
+

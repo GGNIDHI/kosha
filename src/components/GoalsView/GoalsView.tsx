@@ -63,7 +63,7 @@ export const GoalsView: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const goal: Goal = {
-      id: editId ?? Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      id: editId ?? crypto.randomUUID(),
       name: form.name.trim(),
       emoji: form.emoji,
       targetAmount: parseFloat(form.targetAmount),

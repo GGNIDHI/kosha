@@ -1,0 +1,1 @@
+export { SmartReviewView } from './SmartReviewView';

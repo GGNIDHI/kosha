@@ -26,6 +26,8 @@ export function computeHealthScore(
   salarySlips: SalarySlip[],
   monthlyRecurringTotal: number,
   cashBalance: number,
+  investmentCategories?: Set<string>,
+  neutralCategories?: Set<string>,
 ): HealthScoreBreakdown {
   // Use the transactions as passed — caller is responsible for period filtering
   const periodTxs     = transactions;
@@ -44,8 +46,8 @@ export function computeHealthScore(
     };
   }
 
-  const monthlyIncome   = periodTxs.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0);
-  const monthlyExpenses = periodTxs.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0);
+  const monthlyIncome   = periodTxs.filter(t => t.type === 'credit' && !(neutralCategories?.has(t.category))).reduce((s, t) => s + t.amount, 0);
+  const monthlyExpenses = periodTxs.filter(t => t.type === 'debit' && !(neutralCategories?.has(t.category))).reduce((s, t) => s + t.amount, 0);
 
   // 1. Savings Rate (25 pts)
   const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0;
@@ -78,7 +80,9 @@ export function computeHealthScore(
   else if (monthsCovered >= 1) efScore = 7;
 
   // 4. Investment Rate (20 pts) — salary slips may have PF; also look for Investment category credits
-  const investmentDebits = periodTxs.filter(t => t.category === 'Investment').reduce((s, t) => s + t.amount, 0);
+  const investmentDebits = periodTxs
+    .filter(t => investmentCategories ? investmentCategories.has(t.category) : t.category === 'Investment')
+    .reduce((s, t) => s + t.amount, 0);
   const latestSlip = [...salarySlips].sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)[0];
   const totalPF = latestSlip?.providentFund ?? 0;
   const totalInvested = investmentDebits + totalPF;

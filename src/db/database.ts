@@ -113,19 +113,21 @@ export interface Category {
   emoji: string;       // emoji icon e.g. "🍔"
   isDefault: boolean;  // true = built-in, cannot delete
   color?: string;      // optional accent hex
+  type: 'income' | 'expense' | 'investment' | 'neutral';
 }
 
 /** Seed data for default categories */
 export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
-  { label: 'Food',          emoji: '🍔', isDefault: true, color: '#f59e0b' },
-  { label: 'Shopping',      emoji: '🛍️', isDefault: true, color: '#8b5cf6' },
-  { label: 'Utilities',     emoji: '💡', isDefault: true, color: '#06b6d4' },
-  { label: 'Travel',        emoji: '✈️', isDefault: true, color: '#10b981' },
-  { label: 'Salary',        emoji: '💰', isDefault: true, color: '#22c55e' },
-  { label: 'Investment',    emoji: '📈', isDefault: true, color: '#3b82f6' },
-  { label: 'Health',        emoji: '🏥', isDefault: true, color: '#ec4899' },
-  { label: 'Entertainment', emoji: '🎬', isDefault: true, color: '#f97316' },
-  { label: 'Others',        emoji: '📦', isDefault: true, color: '#6b7280' },
+  { label: 'Food',          emoji: '🍔', isDefault: true, color: '#f59e0b', type: 'expense' },
+  { label: 'Shopping',      emoji: '🛍️', isDefault: true, color: '#8b5cf6', type: 'expense' },
+  { label: 'Utilities',     emoji: '💡', isDefault: true, color: '#06b6d4', type: 'expense' },
+  { label: 'Travel',        emoji: '✈️', isDefault: true, color: '#10b981', type: 'expense' },
+  { label: 'Salary',        emoji: '💰', isDefault: true, color: '#22c55e', type: 'income' },
+  { label: 'Investment',    emoji: '📈', isDefault: true, color: '#3b82f6', type: 'investment' },
+  { label: 'Health',        emoji: '🏥', isDefault: true, color: '#ec4899', type: 'expense' },
+  { label: 'Entertainment', emoji: '🎬', isDefault: true, color: '#f97316', type: 'expense' },
+  { label: 'Transfer',      emoji: '🔄', isDefault: true, color: '#64748b', type: 'neutral' },
+  { label: 'Others',        emoji: '📦', isDefault: true, color: '#6b7280', type: 'expense' },
 ];
 
 class KoshaDB extends Dexie {
@@ -173,19 +175,62 @@ class KoshaDB extends Dexie {
     this.version(5).stores({
       reconDecisions: 'id, transactionId, salarySlipId'
     });
+    this.version(6).stores({
+      categories: '++id, &label, isDefault, type'
+    }).upgrade(async tx => {
+      const categoriesTable = tx.table('categories');
+      const categories = await categoriesTable.toArray();
+      for (const cat of categories) {
+        if (!cat.type) {
+          let type: 'income' | 'expense' | 'investment' = 'expense';
+          if (cat.label === 'Salary') {
+            type = 'income';
+          } else if (cat.label === 'Investment') {
+            type = 'investment';
+          }
+          await categoriesTable.update(cat.id, { type });
+        }
+      }
+    });
   }
 }
 
 export const db = new KoshaDB();
 
 // Seed default categories on first run and import environment defaults if present
-db.on('ready', async () => {
-  const count = await db.categories.count();
+db.on('ready', async (vipDb) => {
+  const vip = vipDb as any;
+  const count = await vip.categories.count();
   if (count === 0) {
-    await db.categories.bulkAdd(DEFAULT_CATEGORIES as Category[]);
+    await vip.categories.bulkAdd(DEFAULT_CATEGORIES as Category[]);
+  } else {
+    // Ensure all categories have a type property set
+    const allCats: Category[] = await vip.categories.toArray();
+    for (const cat of allCats) {
+      if (!cat.type) {
+        let type: 'income' | 'expense' | 'investment' = 'expense';
+        if (cat.label === 'Salary') {
+          type = 'income';
+        } else if (cat.label === 'Investment') {
+          type = 'investment';
+        }
+        await vip.categories.update(cat.id, { type });
+      }
+    }
+    // Seed Transfer category if not present
+    const hasTransfer = allCats.some((c: Category) => c.label.toLowerCase() === 'transfer');
+    if (!hasTransfer) {
+      await vip.categories.add({ label: 'Transfer', emoji: '🔄', isDefault: true, color: '#64748b', type: 'neutral' });
+    } else {
+      const transCat = allCats.find((c: Category) => c.label.toLowerCase() === 'transfer');
+      if (transCat && transCat.type !== 'neutral') {
+        await vip.categories.update(transCat.id, { type: 'neutral' });
+      }
+    }
   }
 
-  const hasBeenInitialized = await getSetting('hasBeenInitialized', false);
+  const settingRecord = await vip.settings.get('hasBeenInitialized');
+  const hasBeenInitialized = settingRecord ? settingRecord.value : false;
   if (!hasBeenInitialized) {
     const env = (import.meta as any).env || {};
     const initName = env.VITE_INIT_NAME || '';
@@ -193,13 +238,13 @@ db.on('ready', async () => {
     const initGeminiKey = env.VITE_INIT_GEMINI_KEY || '';
     const initGroqKey = env.VITE_INIT_GROQ_KEY || '';
 
-    if (initName) await setSetting('userName', initName);
-    if (initCurrency) await setSetting('currency', initCurrency);
-    if (initGeminiKey) await setSetting('geminiApiKey', initGeminiKey);
-    if (initGroqKey) await setSetting('groqApiKey', initGroqKey);
+    if (initName) await vip.settings.put({ key: 'userName', value: initName });
+    if (initCurrency) await vip.settings.put({ key: 'currency', value: initCurrency });
+    if (initGeminiKey) await vip.settings.put({ key: 'geminiApiKey', value: initGeminiKey });
+    if (initGroqKey) await vip.settings.put({ key: 'groqApiKey', value: initGroqKey });
 
     if (initName || initCurrency || initGeminiKey || initGroqKey) {
-      await setSetting('hasBeenInitialized', true);
+      await vip.settings.put({ key: 'hasBeenInitialized', value: true });
     }
   }
 });

@@ -6,7 +6,7 @@ import type { Transaction } from '../../db/database';
 import { formatAmount } from '../../utils/currency';
 import { detectRecurring } from '../../utils/recurringDetector';
 import type { RecurringTransaction } from '../../utils/recurringDetector';
-import { Plus, Search, Trash2, Filter, X, ArrowUpRight, ArrowDownLeft, FileSpreadsheet, ReceiptText, RefreshCw } from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, Filter, X, ArrowUpRight, ArrowDownLeft, FileSpreadsheet, ReceiptText, RefreshCw } from 'lucide-react';
 import './LedgerView.css';
 
 
@@ -20,6 +20,12 @@ export const LedgerView: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterType, setFilterType] = useState('All');
 
+  // Dynamic category list from DB
+  const dynamicCategories = useLiveQuery(() => db.categories.toArray(), []) || [];
+  const categoriesList = dynamicCategories.length > 0 
+    ? dynamicCategories.map(c => c.label) 
+    : ['Food', 'Shopping', 'Utilities', 'Travel', 'Salary', 'Investment', 'Health', 'Entertainment', 'Others'];
+
   useEffect(() => {
     getSetting('currency', 'INR').then(setCurrency);
   }, []);
@@ -31,6 +37,16 @@ export const LedgerView: React.FC = () => {
   const [type, setType] = useState<'debit' | 'credit'>('debit');
   const [category, setCategory] = useState('Food');
   const [notes, setNotes] = useState('');
+
+  // Edit/Split Modal State
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editCategory, setEditCategory] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [isSplitMode, setIsSplitMode] = useState(false);
+  const [splits, setSplits] = useState<{ amount: number; category: string; description: string }[]>([]);
 
   // Fetch transactions from database (ordered by date descending)
   const transactions = useLiveQuery(
@@ -55,7 +71,7 @@ export const LedgerView: React.FC = () => {
     if (!description || !amount) return;
 
     const newTx: Transaction = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+      id: crypto.randomUUID(),
       date,
       description: description.trim(),
       amount: parseFloat(amount),
@@ -91,7 +107,71 @@ export const LedgerView: React.FC = () => {
     }
   };
 
-  const categories = ['Food', 'Shopping', 'Utilities', 'Travel', 'Salary', 'Investment', 'Health', 'Entertainment', 'Others'];
+  const handleStartEdit = (tx: Transaction) => {
+    setEditingTx(tx);
+    setEditDate(tx.date);
+    setEditDescription(tx.description);
+    setEditAmount(tx.amount);
+    setEditCategory(tx.category);
+    setEditNotes(tx.notes || '');
+    setIsSplitMode(false);
+    // Auto-split into two equal halves as a starting layout
+    setSplits([
+      { amount: parseFloat((tx.amount / 2).toFixed(2)), category: tx.category, description: tx.description },
+      { amount: parseFloat((tx.amount - parseFloat((tx.amount / 2).toFixed(2))).toFixed(2)), category: tx.category, description: tx.description }
+    ]);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTx || !editingTx.id) return;
+
+    if (isSplitMode) {
+      const totalSplitsAmount = splits.reduce((sum, s) => sum + s.amount, 0);
+      if (Math.abs(totalSplitsAmount - editAmount) > 0.01) {
+        alert(`Total splits sum (${totalSplitsAmount.toFixed(2)}) must equal original amount (${editAmount.toFixed(2)}). Remaining: ${(editAmount - totalSplitsAmount).toFixed(2)}`);
+        return;
+      }
+
+      try {
+        await db.transactions.delete(editingTx.id);
+
+        const splitTxs: Transaction[] = splits.map(s => ({
+          id: crypto.randomUUID(),
+          date: editDate,
+          description: s.description.trim() || editDescription,
+          amount: s.amount,
+          type: editingTx.type,
+          category: s.category,
+          source: editingTx.source,
+          pdfName: editingTx.pdfName,
+          pdfSourceId: editingTx.pdfSourceId,
+          notes: editingTx.notes
+        }));
+
+        await db.transactions.bulkAdd(splitTxs);
+        setEditingTx(null);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to split transaction');
+      }
+    } else {
+      try {
+        await db.transactions.update(editingTx.id, {
+          date: editDate,
+          description: editDescription.trim(),
+          amount: editAmount,
+          category: editCategory,
+          notes: editNotes.trim() || undefined
+        });
+        setEditingTx(null);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to update transaction');
+      }
+    }
+  };
+
+  const categories = categoriesList;
 
   // Detect recurring transactions
   const recurringTxs = detectRecurring(transactions);
@@ -428,13 +508,22 @@ export const LedgerView: React.FC = () => {
                       </span>
                     </td>
                     <td className="text-center">
-                      <button 
-                        className="btn-delete-action" 
-                        onClick={() => tx.id && handleDelete(tx.id)}
-                        title="Delete transaction"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                        <button 
+                          className="btn-edit-action" 
+                          onClick={() => handleStartEdit(tx)}
+                          title="Edit transaction"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button 
+                          className="btn-delete-action" 
+                          onClick={() => tx.id && handleDelete(tx.id)}
+                          title="Delete transaction"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -443,6 +532,235 @@ export const LedgerView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {editingTx && createPortal(
+        <div className="drawer-overlay" onClick={() => setEditingTx(null)}>
+          <div className="glass-card modal-content-centered" style={{ width: '600px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="ledger-drawer-header">
+              <h3>Edit Transaction</h3>
+              <button className="btn-close" onClick={() => setEditingTx(null)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '0 24px 24px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Split Transaction into N parts?</span>
+                <button
+                  className={`btn ${isSplitMode ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '6px 12px', fontSize: '0.78rem', height: 'auto' }}
+                  onClick={() => setIsSplitMode(v => !v)}
+                >
+                  {isSplitMode ? 'Standard Mode' : 'Split Mode'}
+                </button>
+              </div>
+
+              {!isSplitMode ? (
+                <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="ledger-drawer-form">
+                  <div className="form-group">
+                    <label className="form-label">Date</label>
+                    <input 
+                      type="date" 
+                      className="form-input" 
+                      value={editDate} 
+                      onChange={(e) => setEditDate(e.target.value)} 
+                      required 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      required 
+                    />
+                  </div>
+
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label className="form-label">Amount</label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        className="form-input" 
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                        required 
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Category</label>
+                      <select 
+                        className="form-select"
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                      >
+                        {categoriesList.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Notes (Optional)</label>
+                    <textarea 
+                      className="form-textarea" 
+                      rows={3}
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                    <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                      Save Changes
+                  </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setEditingTx(null)}>
+                      Cancel
+                  </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="ledger-drawer-form">
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label className="form-label">Original Date</label>
+                      <input 
+                        type="date" 
+                        className="form-input" 
+                        value={editDate} 
+                        onChange={(e) => setEditDate(e.target.value)} 
+                        required 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Original Amount</label>
+                      <input 
+                        type="number" 
+                        className="form-input" 
+                        value={editAmount}
+                        disabled
+                        style={{ opacity: 0.6 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="modal-section-title" style={{ marginTop: '12px', marginBottom: '8px' }}>Split Allocations</div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '30vh', overflowY: 'auto', paddingRight: '4px', marginBottom: '16px' }}>
+                    {splits.map((s, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '10px' }}>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          placeholder="Split description"
+                          style={{ flex: 2, height: '36px' }}
+                          value={s.description}
+                          onChange={(e) => {
+                            const newSplits = [...splits];
+                            newSplits[idx].description = e.target.value;
+                            setSplits(newSplits);
+                          }}
+                        />
+                        <select
+                          className="form-select"
+                          style={{ flex: 1.5, height: '36px', padding: '0 8px' }}
+                          value={s.category}
+                          onChange={(e) => {
+                            const newSplits = [...splits];
+                            newSplits[idx].category = e.target.value;
+                            setSplits(newSplits);
+                          }}
+                        >
+                          {categoriesList.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          className="form-input"
+                          placeholder="0.00"
+                          style={{ flex: 1.2, height: '36px' }}
+                          value={s.amount}
+                          onChange={(e) => {
+                            const newSplits = [...splits];
+                            newSplits[idx].amount = parseFloat(e.target.value) || 0;
+                            setSplits(newSplits);
+                          }}
+                        />
+                        {splits.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSplits(splits.filter((_, i) => i !== idx));
+                            }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }}
+                          >
+                            <X size={16} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '0.78rem', height: 'auto' }}
+                      onClick={() => {
+                        const totalAllocated = splits.reduce((sum, s) => sum + s.amount, 0);
+                        const rem = editAmount - totalAllocated;
+                        setSplits([...splits, { amount: parseFloat(Math.max(0, rem).toFixed(2)), category: editCategory, description: editDescription }]);
+                      }}
+                    >
+                      + Add Split
+                    </button>
+
+                    <div style={{ textAlign: 'right', fontSize: '0.85rem' }}>
+                      <div style={{ color: 'var(--text-muted)' }}>
+                        Total Allocated: <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatAmount(splits.reduce((sum, s) => sum + s.amount, 0), currency)}</span>
+                      </div>
+                      {(() => {
+                        const totalAllocated = splits.reduce((sum, s) => sum + s.amount, 0);
+                        const rem = editAmount - totalAllocated;
+                        const isZero = Math.abs(rem) < 0.01;
+                        return (
+                          <div style={{ color: isZero ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                            {isZero ? 'Fully Allocated ✓' : `Remaining: ${formatAmount(rem, currency)}`}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      onClick={handleSaveEdit}
+                      disabled={Math.abs(editAmount - splits.reduce((sum, s) => sum + s.amount, 0)) > 0.01}
+                    >
+                      Save Splits
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setEditingTx(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

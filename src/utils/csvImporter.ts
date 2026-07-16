@@ -171,7 +171,7 @@ export function parseCsv(csvText: string): CsvParseResult {
 /** Convert parsed CSV rows into Transaction objects ready for DB insertion */
 export function csvRowsToTransactions(rows: CsvRow[], fileName: string): Transaction[] {
   return rows.map(r => ({
-    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+    id: crypto.randomUUID(),
     date: r.date,
     description: r.description,
     amount: r.amount,

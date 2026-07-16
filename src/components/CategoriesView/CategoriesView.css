@@ -313,3 +313,40 @@
   line-height: 1.5;
   margin: 0;
 }
+
+/* Category Type Badges */
+.cat-type-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.cat-type-badge.type-income {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.cat-type-badge.type-expense {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.cat-type-badge.type-investment {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.cat-type-badge.type-neutral {
+  background: rgba(100, 116, 139, 0.1);
+  color: #94a3b8;
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+

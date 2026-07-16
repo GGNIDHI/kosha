@@ -10,6 +10,7 @@ export const CategoriesView: React.FC = () => {
   const [newLabel, setNewLabel] = useState('');
   const [newEmoji, setNewEmoji] = useState('📦');
   const [newColor, setNewColor] = useState('#8b5cf6');
+  const [newType, setNewType] = useState<'income' | 'expense' | 'investment' | 'neutral'>('expense');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export const CategoriesView: React.FC = () => {
   const [editLabel, setEditLabel] = useState('');
   const [editEmoji, setEditEmoji] = useState('📦');
   const [editColor, setEditColor] = useState('#8b5cf6');
+  const [editType, setEditType] = useState<'income' | 'expense' | 'investment' | 'neutral'>('expense');
   const [showEditEmojiPicker, setShowEditEmojiPicker] = useState(false);
 
   const loadCategories = async () => {
@@ -39,10 +41,11 @@ export const CategoriesView: React.FC = () => {
     setAdding(true);
     setError(null);
     try {
-      await db.categories.add({ label, emoji: newEmoji, isDefault: false, color: newColor });
+      await db.categories.add({ label, emoji: newEmoji, isDefault: false, color: newColor, type: newType });
       setNewLabel('');
       setNewEmoji('📦');
       setNewColor('#8b5cf6');
+      setNewType('expense');
       await loadCategories();
     } catch (e: any) {
       setError(e.message || 'Failed to add category.');
@@ -78,6 +81,7 @@ export const CategoriesView: React.FC = () => {
     setEditLabel(cat.label);
     setEditEmoji(cat.emoji);
     setEditColor(cat.color || '#8b5cf6');
+    setEditType(cat.type || 'expense');
     setShowEditEmojiPicker(false);
   };
 
@@ -98,7 +102,8 @@ export const CategoriesView: React.FC = () => {
       await db.categories.update(editingCategoryId!, {
         label,
         emoji: editEmoji,
-        color: editColor
+        color: editColor,
+        type: editType,
       });
 
       if (oldCat.label !== label) {
@@ -147,6 +152,7 @@ export const CategoriesView: React.FC = () => {
               <span className="cat-emoji">{cat.emoji}</span>
               <span className="cat-label">{cat.label}</span>
               <span className="cat-default-badge" style={{ marginRight: '6px' }}>Default</span>
+              <span className={`cat-type-badge type-${cat.type}`} style={{ marginRight: '6px' }}>{cat.type}</span>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button className="cat-action-btn edit" onClick={() => handleStartEdit(cat)} title="Edit category" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}>
                   <Edit2 size={12} />
@@ -181,6 +187,7 @@ export const CategoriesView: React.FC = () => {
               <div key={cat.id} className="cat-chip custom-chip" style={{ '--cat-color': cat.color || '#8b5cf6' } as React.CSSProperties}>
                 <span className="cat-emoji">{cat.emoji}</span>
                 <span className="cat-label">{cat.label}</span>
+                <span className={`cat-type-badge type-${cat.type}`} style={{ marginRight: '6px', marginLeft: '6px' }}>{cat.type}</span>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginLeft: '6px' }}>
                   <button className="cat-action-btn edit" onClick={() => handleStartEdit(cat)} title="Edit category" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}>
                     <Edit2 size={12} />
@@ -241,6 +248,21 @@ export const CategoriesView: React.FC = () => {
                 maxLength={30}
               />
 
+              <div className="type-picker-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label className="form-label color-label" style={{ alignSelf: 'flex-start' }}>Type</label>
+                <select
+                  className="form-input"
+                  style={{ height: '46px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-glass)', borderRadius: 'var(--border-radius-md)', color: 'var(--text-primary)', padding: '0 12px', cursor: 'pointer', outline: 'none' }}
+                  value={editType}
+                  onChange={e => setEditType(e.target.value as any)}
+                >
+                  <option value="expense" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Expense</option>
+                  <option value="income" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Income</option>
+                  <option value="investment" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Investment</option>
+                  <option value="neutral" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Neutral</option>
+                </select>
+              </div>
+
               <div className="color-picker-wrapper">
                 <label className="form-label color-label">Color</label>
                 <input
@@ -278,6 +300,7 @@ export const CategoriesView: React.FC = () => {
                 <div className="cat-chip preview-chip" style={{ '--cat-color': editColor } as React.CSSProperties}>
                   <span className="cat-emoji">{editEmoji}</span>
                   <span className="cat-label">{editLabel.trim()}</span>
+                  <span className={`cat-type-badge type-${editType}`} style={{ marginLeft: '6px' }}>{editType}</span>
                 </div>
               </div>
             )}
@@ -328,6 +351,21 @@ export const CategoriesView: React.FC = () => {
                 maxLength={30}
               />
 
+              <div className="type-picker-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label className="form-label color-label" style={{ alignSelf: 'flex-start' }}>Type</label>
+                <select
+                  className="form-input"
+                  style={{ height: '46px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-glass)', borderRadius: 'var(--border-radius-md)', color: 'var(--text-primary)', padding: '0 12px', cursor: 'pointer', outline: 'none' }}
+                  value={newType}
+                  onChange={e => setNewType(e.target.value as any)}
+                >
+                  <option value="expense" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Expense</option>
+                  <option value="income" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Income</option>
+                  <option value="investment" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Investment</option>
+                  <option value="neutral" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Neutral</option>
+                </select>
+              </div>
+
               <div className="color-picker-wrapper">
                 <label className="form-label color-label">Color</label>
                 <input
@@ -356,6 +394,7 @@ export const CategoriesView: React.FC = () => {
                 <div className="cat-chip preview-chip" style={{ '--cat-color': newColor } as React.CSSProperties}>
                   <span className="cat-emoji">{newEmoji}</span>
                   <span className="cat-label">{newLabel.trim()}</span>
+                  <span className={`cat-type-badge type-${newType}`} style={{ marginLeft: '6px' }}>{newType}</span>
                 </div>
               </div>
             )}

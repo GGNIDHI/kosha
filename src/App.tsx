@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { DashboardView } from './components/DashboardView';
+import { DashboardView } from './components/DashboardView/DashboardView';
 import { LedgerView } from './components/LedgerView/LedgerView';
 import { PdfParserView } from './components/PdfParserView/PdfParserView';
 import { InvestmentsView } from './components/InvestmentsView/InvestmentsView';
@@ -13,7 +13,7 @@ import { CsvImportView } from './components/CsvImportView/CsvImportView';
 import { CategoriesView } from './components/CategoriesView/CategoriesView';
 import { SettingsView } from './components/SettingsView/SettingsView';
 import { OnboardingView } from './components/OnboardingView';
-import { SmartReviewView } from './components/SmartReviewView';
+import { SmartReviewView } from './components/SmartReviewView/SmartReviewView';
 import { SalaryMappingsView } from './components/SalaryMappingsView/SalaryMappingsView';
 import { getSetting } from './db/database';
 import './App.css';

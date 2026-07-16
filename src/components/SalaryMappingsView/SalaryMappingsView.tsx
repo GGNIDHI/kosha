@@ -26,7 +26,7 @@ export const SalaryMappingsView: React.FC = () => {
     getSetting<SalarySlipMapping[]>('salarySlipMappings', []).then(async (loaded) => {
       let changed = false;
       const migrated = (loaded || []).map((m) => {
-        const id = m.id || `map-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const id = m.id || `map-${crypto.randomUUID()}`;
         const componentName = m.componentName || (m as any).name || 'Unknown';
         const componentType = m.componentType || (m as any).type || 'deduction';
         const targetCategory = m.targetCategory || (m as any).category || 'investment';
@@ -57,7 +57,7 @@ export const SalaryMappingsView: React.FC = () => {
     }
 
     const newRule: SalarySlipMapping = {
-      id: `map-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      id: `map-${crypto.randomUUID()}`,
       componentName: newCompName.trim(),
       componentType: newCompType,
       targetCategory: newCompCategory

@@ -63,7 +63,7 @@ Rules:
 
   return parsed.transactions.map((tx: any) => ({
     ...tx,
-    id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    id: `tx-${crypto.randomUUID()}`,
     source: 'bank_statement' as const
   }));
 }
@@ -139,7 +139,7 @@ Rules:
 
   return {
     ...parsed,
-    id: `slip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    id: `slip-${crypto.randomUUID()}`
   };
 }
 
